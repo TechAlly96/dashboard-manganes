@@ -1,97 +1,106 @@
-
 import dash
 from dash import dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.graph_objs as go
 import plotly.express as px
 
-# Inicializa o app
+# Inicializar o app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
-# Carregamento e pré-processamento da planilha
+# Carregar a planilha ASSAY.xlsx
 try:
     df = pd.read_excel("data/ASSAY.xlsx")
-    df.columns = df.columns.str.upper().str.strip()
+    df = df.rename(columns=lambda x: x.strip().upper())
     df = df.rename(columns={
-        "MN_PPM": "MN_PPM",
-        "X": "X", "Y": "Y", "Z": "Z", "AMOSTRA": "AMOSTRA",
-        "FURO": "FURO", "LOCALIDADE": "LOCALIDADE"
+        'MN': 'MN_%',  # Teor de manganês já em porcentagem
+        'AMOSTRA': 'AMOSTRA',
+        'X': 'X',
+        'Y': 'Y',
+        'Z': 'Z',
+        'LOCAL': 'LOCAL',
+        'FURO': 'FURO'
     })
-    df = df[df["MN_PPM"].notna()]
-    df["MN_%"] = (df["MN_PPM"] / 10000).round(2)
+    df.dropna(subset=['MN_%'], inplace=True)
 except Exception as e:
     print("Erro ao carregar os dados:", e)
-    df = pd.DataFrame(columns=["LOCALIDADE", "FURO", "X", "Y", "Z", "MN_PPM", "MN_%"])
+    df = pd.DataFrame()
 
 # Layout
 app.layout = dbc.Container([
-    html.H2("Dashboard Interativo - Análise de Manganês", className="text-center my-3"),
-    dcc.Tabs([
-        dcc.Tab(label='Visualização 3D', children=[
-            dcc.RangeSlider(id='range-slider', min=0, max=50, step=0.5, value=[0, 50],
-                marks={i: f"{i}%" for i in range(0, 51, 10)}),
-            dcc.Graph(id='graph-3d'),
-            html.Div(id='resumo-analitico', className="mt-4")
-        ]),
-        dcc.Tab(label='Gráfico de Barras por Furo', children=[
-            dcc.Graph(id='graph-bar')
+    html.H2("Dashboard 3D - Análise de Manganês", className="text-center my-4"),
+    dbc.Row([
+        dbc.Col([
+            html.Label("Tipo de visualização:"),
+            dcc.RadioItems(
+                id='tipo-grafico',
+                options=[
+                    {'label': 'Gráfico 3D', 'value': '3d'},
+                    {'label': 'Gráfico de Barras', 'value': 'barras'}
+                ],
+                value='3d',
+                inline=True
+            )
+        ])
+    ]),
+    dbc.Row([
+        dbc.Col([
+            dcc.Graph(id='grafico-manganes', style={"height": "700px"})
+        ])
+    ]),
+    dbc.Row([
+        dbc.Col([
+            html.Div(id='resumo-local', className='mt-4')
         ])
     ])
 ], fluid=True)
 
-# Callback para o gráfico 3D e resumo
+# Callback
 @app.callback(
-    Output("graph-3d", "figure"),
-    Output("resumo-analitico", "children"),
-    Input("range-slider", "value")
+    [Output('grafico-manganes', 'figure'),
+     Output('resumo-local', 'children')],
+    [Input('tipo-grafico', 'value')]
 )
-def update_graph(range_mn):
+def atualizar_visualizacao(tipo):
     if df.empty:
-        return go.Figure(), "Dados não disponíveis."
+        return go.Figure(), "Erro ao carregar dados."
 
-    filtered = df[(df["MN_%"] >= range_mn[0]) & (df["MN_%"] <= range_mn[1])]
-    fig = px.scatter_3d(filtered, x="X", y="Y", z="Z",
-                        color="MN_%", size="MN_%",
-                        hover_name="AMOSTRA",
-                        color_continuous_scale="Hot",
-                        title="Distribuição 3D das Amostras")
-    fig.update_traces(marker=dict(line=dict(width=0)))
-    fig.update_layout(height=700, margin=dict(l=0, r=0, b=0, t=40))
+    if tipo == '3d':
+        fig = px.scatter_3d(
+            df, x='X', y='Y', z='Z',
+            color='MN_%',
+            size='MN_%',
+            hover_data=['AMOSTRA', 'FURO', 'LOCAL', 'MN_%'],
+            color_continuous_scale='Hot',
+            title="Distribuição 3D das Amostras de Manganês"
+        )
+        fig.update_layout(margin=dict(l=0, r=0, b=0, t=40))
+    else:
+        fig = px.bar(
+            df,
+            x='FURO',
+            y='MN_%',
+            color='LOCAL',
+            hover_data=['AMOSTRA', 'MN_%'],
+            title="Comparativo por Furo - Teor de Manganês (%)"
+        )
+        fig.update_layout(margin=dict(l=0, r=0, b=0, t=40))
 
-    mensagens = []
-    for loc in filtered["LOCALIDADE"].unique():
-        sub = filtered[filtered["LOCALIDADE"] == loc]
-        media = sub["MN_%"].mean()
-        maior = sub.loc[sub["MN_%"].idxmax()]
-        mensagens.append(html.P(f"Na localidade {loc}, no furo {maior['FURO']} encontramos manganês com teor de {maior['MN_%']}% aferido pelo aparelho X-MET8000 por fluorescência."))
-        mensagens.append(html.P(f"A média de {len(sub)} amostras em {loc} é de {media:.2f}%."))
+    frases = []
+    for localidade in df['LOCAL'].unique():
+        sub_df = df[df['LOCAL'] == localidade]
+        for furo in sub_df['FURO'].unique():
+            sub_furo = sub_df[sub_df['FURO'] == furo]
+            maior = sub_furo['MN_%'].max()
+            media = sub_furo['MN_%'].mean()
+            frases.append(
+                html.P(f"Na localidade {localidade}, no furo {furo}, encontramos manganês com teor máximo de {maior:.2f}%. "
+                       f"A média das {len(sub_furo)} amostras é de {media:.2f}% de manganês.")
+            )
 
-    return fig, mensagens
+    return fig, frases
 
-# Callback para gráfico de barras
-@app.callback(
-    Output("graph-bar", "figure"),
-    Input("range-slider", "value")
-)
-def bar_chart(range_mn):
-    if df.empty:
-        return go.Figure()
-
-    filtro = df[(df["MN_%"] >= range_mn[0]) & (df["MN_%"] <= range_mn[1])]
-    agrupado = filtro.groupby(["LOCALIDADE", "FURO"]).agg(
-        MEDIA_MN=("MN_%", "mean"),
-        MAX_MN=("MN_%", "max"),
-        AMOSTRAS=("MN_%", "count")
-    ).reset_index()
-
-    fig = px.bar(agrupado, x="FURO", y="MEDIA_MN", color="LOCALIDADE",
-                 hover_data=["MAX_MN", "AMOSTRAS"],
-                 title="Média de Manganês por Furo e Localidade")
-    fig.update_layout(barmode="group", height=600)
-    return fig
-
-# Execução
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000, debug=False)
+# Run
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=10000)
