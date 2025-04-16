@@ -4,11 +4,11 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
 
-# Inicializar o app
+# Inicializar app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
-# Carregar os dados
+# Carregar e preparar os dados
 try:
     df = pd.read_excel("data/ASSAY.xlsx")
     df = df.rename(columns=lambda x: x.strip().upper())
@@ -26,32 +26,33 @@ except Exception as e:
     print("Erro ao carregar os dados:", e)
     df = pd.DataFrame()
 
-# Layout
+# Layout do app
 app.layout = dbc.Container([
-    html.H2("Dashboard de Manganês", className="text-center my-4"),
+    html.H2("Dashboard de Teores de Manganês", className="text-center my-4"),
     dbc.Row([
         dbc.Col([
-            html.Label("Escolha o tipo de gráfico:"),
+            html.Label("Tipo de gráfico:"),
             dcc.RadioItems(
-                id='tipo-grafico',
+                id="tipo-grafico",
                 options=[
-                    {'label': 'Gráfico 3D', 'value': '3d'},
-                    {'label': 'Gráfico de Barras', 'value': 'barras'}
+                    {"label": "Gráfico 3D", "value": "3d"},
+                    {"label": "Gráfico de Barras", "value": "barras"}
                 ],
-                value='3d',
+                value="3d",
                 inline=True
             )
         ])
     ]),
     dbc.Row([
         dbc.Col([
-            dcc.Graph(id='grafico')
+            dcc.Graph(id="grafico")
         ])
     ]),
     html.Hr(),
-    html.Div(id='resumo', className="text-start")
+    html.Div(id="resumo", className="mt-3")
 ], fluid=True)
 
+# Callback de atualização
 @app.callback(
     [Output("grafico", "figure"),
      Output("resumo", "children")],
@@ -59,7 +60,7 @@ app.layout = dbc.Container([
 )
 def atualizar_grafico(tipo):
     if df.empty:
-        return px.scatter_3d(), "Erro: dados não carregados corretamente."
+        return px.scatter_3d(), "Erro ao carregar dados da planilha ASSAY."
 
     if tipo == "3d":
         fig = px.scatter_3d(
@@ -69,7 +70,7 @@ def atualizar_grafico(tipo):
             size="MN_%",
             hover_data=["AMOSTRA", "FURO", "LOCAL", "MN_%"],
             color_continuous_scale="Hot",
-            title="Distribuição 3D do Teor de Manganês (%)"
+            title="Teores de Manganês (%) - Visualização 3D"
         )
     else:
         fig = px.bar(
@@ -80,6 +81,7 @@ def atualizar_grafico(tipo):
             title="Teor de Manganês por Furo"
         )
 
+    # Frases descritivas automáticas
     frases = []
     for local in df["LOCAL"].unique():
         sub_df = df[df["LOCAL"] == local]
@@ -94,6 +96,6 @@ def atualizar_grafico(tipo):
 
     return fig, frases
 
-# Rodar
-if __name__ == '__main__':
+# Execução local
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
