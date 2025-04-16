@@ -1,57 +1,107 @@
 import pandas as pd
-import plotly.express as px
 import dash
-import dash_core_components as dcc
-import dash_html_components as html
-import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output
+from dash import dcc, html, Input, Output
+import plotly.express as px
+import os
 
-# Carregar os dados
+# Caminho absoluto para o arquivo ASSAY.xlsx dentro da pasta 'data'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
+
+# Inicialização do app
+app = dash.Dash(__name__)
+app.title = 'Dashboard Interativo - Análise de Manganês'
+
+# Tentativa de leitura dos dados
 try:
-    df = pd.read_excel("ASSAY.xlsx")
-    df["Mn"] = df["Mn"].astype(float)
+    df = pd.read_excel(FILE_PATH)
+
+    # Validação das colunas esperadas
+    colunas_necessarias = ['Mn', 'DEPTH_TO', 'HOLE_ID']
+    for col in colunas_necessarias:
+        if col not in df.columns:
+            raise ValueError(f"Coluna obrigatória ausente: {col}")
+
+    # Dados estatísticos
+    total_amostras = len(df)
+    teor_medio = df['Mn'].mean()
+    maior_teor = df['Mn'].max()
+    menor_teor = df['Mn'].min()
+    unique_furos = df['HOLE_ID'].unique()
+
 except Exception as e:
     df = pd.DataFrame()
     erro_carregamento = str(e)
 else:
     erro_carregamento = None
 
-# Inicializar o app
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-
-# Layout
+# Layout do dashboard
 app.layout = html.Div([
-    html.H1("Dashboard Interativo - Análise de Manganês"),
+    html.H1("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
 
-    dcc.Tabs(id="tabs", value="tab-3d", children=[
-        dcc.Tab(label="Visualização 3D", value="tab-3d"),
-        dcc.Tab(label="Gráfico de Barras por Furo", value="tab-bar")
+    html.Div([
+        dcc.Tabs(id='tabs', value='tab-3d', children=[
+            dcc.Tab(label='Visualização 3D', value='tab-3d'),
+            dcc.Tab(label='Gráfico de Barras por Furo', value='tab-barras')
+        ])
     ]),
 
-    html.Div(id="tabs-content")
+    html.Div([
+        dcc.Slider(
+            id='slider-teor',
+            min=0,
+            max=50,
+            step=1,
+            value=0,
+            marks={i: f"{i}%" for i in range(0, 51, 10)},
+            tooltip={"placement": "bottom", "always_visible": True}
+        )
+    ], style={'margin': '20px'}),
+
+    html.Div(id='graficos'),
+
+    html.Div(id='mensagem-erro', style={'color': 'red', 'textAlign': 'center', 'marginTop': '20px'})
 ])
 
-# Callbacks
+# Callback principal
 @app.callback(
-    Output("tabs-content", "children"),
-    Input("tabs", "value")
+    Output('graficos', 'children'),
+    Output('mensagem-erro', 'children'),
+    Input('tabs', 'value'),
+    Input('slider-teor', 'value')
 )
-def render_content(tab):
+def atualizar_grafico(tab, teor_minimo):
     if df.empty:
-        return html.P("Dados não disponíveis." + (f" Erro: {erro_carregamento}" if erro_carregamento else ""))
+        return [], f"Erro ao carregar os dados: {erro_carregamento}"
 
-    if tab == "tab-3d":
-        fig = px.scatter_3d(df, x="X", y="Y", z="Z", color="Mn",
-                            title="Distribuição 3D dos Teores de Manganês",
-                            labels={"Mn": "Teor de Mn (%)"})
-        return dcc.Graph(figure=fig)
-    elif tab == "tab-bar":
-        barras = df.groupby("Furo")["Mn"].mean().reset_index()
-        fig = px.bar(barras, x="Furo", y="Mn",
-                     title="Teor Médio de Manganês por Furo",
-                     labels={"Mn": "Teor de Mn (%)"})
-        return dcc.Graph(figure=fig)
+    df_filtrado = df[df['Mn'] >= teor_minimo]
 
-# Rodar app
-if __name__ == "__main__":
-    app.run_server(debug=False, port=10000)
+    if df_filtrado.empty:
+        return [], "Dados não disponíveis."
+
+    if tab == 'tab-3d':
+        fig = px.scatter_3d(
+            df_filtrado,
+            x='HOLE_ID',
+            y='DEPTH_TO',
+            z='Mn',
+            color='Mn',
+            color_continuous_scale='YlOrRd',
+            title='Visualização 3D - Teor de Manganês'
+        )
+    else:
+        media_por_furo = df_filtrado.groupby('HOLE_ID')['Mn'].mean().reset_index()
+        fig = px.bar(
+            media_por_furo,
+            x='HOLE_ID',
+            y='Mn',
+            title='Teor Médio por Furo',
+            color='Mn',
+            color_continuous_scale='YlGnBu'
+        )
+
+    return [dcc.Graph(figure=fig)], ""
+
+# Execução do servidor local
+if __name__ == '__main__':
+    app.run(debug=True, port=10000)
