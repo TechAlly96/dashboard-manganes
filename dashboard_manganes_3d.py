@@ -2,37 +2,36 @@ import dash
 from dash import dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 import pandas as pd
-import plotly.graph_objs as go
 import plotly.express as px
 
 # Inicializar o app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
-# Carregar a planilha ASSAY.xlsx
+# Carregar os dados
 try:
     df = pd.read_excel("data/ASSAY.xlsx")
     df = df.rename(columns=lambda x: x.strip().upper())
-    df = df.rename(columns={
-        'MN': 'MN_%',  # Teor de manganês já em porcentagem
-        'AMOSTRA': 'AMOSTRA',
-        'X': 'X',
-        'Y': 'Y',
-        'Z': 'Z',
-        'LOCAL': 'LOCAL',
-        'FURO': 'FURO'
-    })
-    df.dropna(subset=['MN_%'], inplace=True)
+    df.rename(columns={
+        "MN": "MN_%",
+        "X": "X",
+        "Y": "Y",
+        "Z": "Z",
+        "LOCAL": "LOCAL",
+        "FURO": "FURO",
+        "AMOSTRA": "AMOSTRA"
+    }, inplace=True)
+    df = df.dropna(subset=["MN_%"])
 except Exception as e:
     print("Erro ao carregar os dados:", e)
     df = pd.DataFrame()
 
 # Layout
 app.layout = dbc.Container([
-    html.H2("Dashboard 3D - Análise de Manganês", className="text-center my-4"),
+    html.H2("Dashboard de Manganês", className="text-center my-4"),
     dbc.Row([
         dbc.Col([
-            html.Label("Tipo de visualização:"),
+            html.Label("Escolha o tipo de gráfico:"),
             dcc.RadioItems(
                 id='tipo-grafico',
                 options=[
@@ -46,61 +45,55 @@ app.layout = dbc.Container([
     ]),
     dbc.Row([
         dbc.Col([
-            dcc.Graph(id='grafico-manganes', style={"height": "700px"})
+            dcc.Graph(id='grafico')
         ])
     ]),
-    dbc.Row([
-        dbc.Col([
-            html.Div(id='resumo-local', className='mt-4')
-        ])
-    ])
+    html.Hr(),
+    html.Div(id='resumo', className="text-start")
 ], fluid=True)
 
-# Callback
 @app.callback(
-    [Output('grafico-manganes', 'figure'),
-     Output('resumo-local', 'children')],
-    [Input('tipo-grafico', 'value')]
+    [Output("grafico", "figure"),
+     Output("resumo", "children")],
+    [Input("tipo-grafico", "value")]
 )
-def atualizar_visualizacao(tipo):
+def atualizar_grafico(tipo):
     if df.empty:
-        return go.Figure(), "Erro ao carregar dados."
+        return px.scatter_3d(), "Erro: dados não carregados corretamente."
 
-    if tipo == '3d':
+    if tipo == "3d":
         fig = px.scatter_3d(
-            df, x='X', y='Y', z='Z',
-            color='MN_%',
-            size='MN_%',
-            hover_data=['AMOSTRA', 'FURO', 'LOCAL', 'MN_%'],
-            color_continuous_scale='Hot',
-            title="Distribuição 3D das Amostras de Manganês"
+            df,
+            x="X", y="Y", z="Z",
+            color="MN_%",
+            size="MN_%",
+            hover_data=["AMOSTRA", "FURO", "LOCAL", "MN_%"],
+            color_continuous_scale="Hot",
+            title="Distribuição 3D do Teor de Manganês (%)"
         )
-        fig.update_layout(margin=dict(l=0, r=0, b=0, t=40))
     else:
         fig = px.bar(
             df,
-            x='FURO',
-            y='MN_%',
-            color='LOCAL',
-            hover_data=['AMOSTRA', 'MN_%'],
-            title="Comparativo por Furo - Teor de Manganês (%)"
+            x="FURO", y="MN_%",
+            color="LOCAL",
+            hover_data=["AMOSTRA", "MN_%"],
+            title="Teor de Manganês por Furo"
         )
-        fig.update_layout(margin=dict(l=0, r=0, b=0, t=40))
 
     frases = []
-    for localidade in df['LOCAL'].unique():
-        sub_df = df[df['LOCAL'] == localidade]
-        for furo in sub_df['FURO'].unique():
-            sub_furo = sub_df[sub_df['FURO'] == furo]
-            maior = sub_furo['MN_%'].max()
-            media = sub_furo['MN_%'].mean()
-            frases.append(
-                html.P(f"Na localidade {localidade}, no furo {furo}, encontramos manganês com teor máximo de {maior:.2f}%. "
-                       f"A média das {len(sub_furo)} amostras é de {media:.2f}% de manganês.")
-            )
+    for local in df["LOCAL"].unique():
+        sub_df = df[df["LOCAL"] == local]
+        for furo in sub_df["FURO"].unique():
+            dados = sub_df[sub_df["FURO"] == furo]
+            maior = dados["MN_%"].max()
+            media = dados["MN_%"].mean()
+            frases.append(html.P(
+                f"Na localidade {local}, no furo {furo}, encontramos manganês com teor máximo de {maior:.2f}%. "
+                f"A média das {len(dados)} amostras analisadas é de {media:.2f}%."
+            ))
 
     return fig, frases
 
-# Run
+# Rodar
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=10000)
