@@ -3,100 +3,95 @@ import dash
 from dash import dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 import pandas as pd
+import plotly.graph_objects as go
 import plotly.express as px
 
-# Inicializar app
+# Inicializa o app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
-# Carregar e preparar os dados
+# Carregamento e pré-processamento da planilha
 try:
     df = pd.read_excel("data/ASSAY.xlsx")
-    df = df.rename(columns=lambda x: x.strip().upper())
-    df.rename(columns={
-        "MN": "MN_%",
-        "X": "X",
-        "Y": "Y",
-        "Z": "Z",
-        "LOCAL": "LOCAL",
-        "FURO": "FURO",
-        "AMOSTRA": "AMOSTRA"
-    }, inplace=True)
-    df = df.dropna(subset=["MN_%"])
+    df.columns = df.columns.str.upper().str.strip()
+    df = df.rename(columns={
+        "Mn": "Mn",
+        "X": "X", "Y": "Y", "Z": "Z", "AMOSTRA": "AMOSTRA",
+        "FURO": "FURO", "LOCALIDADE": "LOCALIDADE"
+    })
+    df = df[df["Mn"].notna()]
+    df["MN_%"] = (df["Mn"] / 10000).round(2)
 except Exception as e:
     print("Erro ao carregar os dados:", e)
-    df = pd.DataFrame()
+    df = pd.DataFrame(columns=["LOCALIDADE", "FURO", "X", "Y", "Z", "Mn", "MN_%"])
 
-# Layout do app
+# Layout
 app.layout = dbc.Container([
-    html.H2("Dashboard de Teores de Manganês", className="text-center my-4"),
-    dbc.Row([
-        dbc.Col([
-            html.Label("Tipo de gráfico:"),
-            dcc.RadioItems(
-                id="tipo-grafico",
-                options=[
-                    {"label": "Gráfico 3D", "value": "3d"},
-                    {"label": "Gráfico de Barras", "value": "barras"}
-                ],
-                value="3d",
-                inline=True
-            )
+    html.H2("Dashboard Interativo - Análise de Manganês", className="text-center my-3"),
+    dcc.Tabs([
+        dcc.Tab(label='Visualização 3D', children=[
+            dcc.RangeSlider(id='range-slider', min=0, max=50, step=0.5, value=[0, 50],
+                marks={i: f"{i}%" for i in range(0, 51, 10)}),
+            dcc.Graph(id='graph-3d'),
+            html.Div(id='resumo-analitico', className="mt-4")
+        ]),
+        dcc.Tab(label='Gráfico de Barras por Furo', children=[
+            dcc.Graph(id='graph-bar')
         ])
-    ]),
-    dbc.Row([
-        dbc.Col([
-            dcc.Graph(id="grafico")
-        ])
-    ]),
-    html.Hr(),
-    html.Div(id="resumo", className="mt-3")
+    ])
 ], fluid=True)
 
-# Callback de atualização
+# Callback para o gráfico 3D e resumo
 @app.callback(
-    [Output("grafico", "figure"),
-     Output("resumo", "children")],
-    [Input("tipo-grafico", "value")]
+    Output("graph-3d", "figure"),
+    Output("resumo-analitico", "children"),
+    Input("range-slider", "value")
 )
-def atualizar_grafico(tipo):
+def update_graph(range_mn):
     if df.empty:
-        return px.scatter_3d(), "Erro ao carregar dados da planilha ASSAY."
+        return go.Figure(), "Dados não disponíveis."
 
-    if tipo == "3d":
-        fig = px.scatter_3d(
-            df,
-            x="X", y="Y", z="Z",
-            color="MN_%",
-            size="MN_%",
-            hover_data=["AMOSTRA", "FURO", "LOCAL", "MN_%"],
-            color_continuous_scale="Hot",
-            title="Teores de Manganês (%) - Visualização 3D"
-        )
-    else:
-        fig = px.bar(
-            df,
-            x="FURO", y="MN_%",
-            color="LOCAL",
-            hover_data=["AMOSTRA", "MN_%"],
-            title="Teor de Manganês por Furo"
-        )
+    filtered = df[(df["MN_%"] >= range_mn[0]) & (df["MN_%"] <= range_mn[1])]
+    fig = px.scatter_3d(filtered, x="X", y="Y", z="Z",
+                        color="MN_%", size="MN_%",
+                        hover_name="AMOSTRA",
+                        color_continuous_scale="Hot",
+                        title="Distribuição 3D das Amostras")
+    fig.update_traces(marker=dict(line=dict(width=0)))
+    fig.update_layout(height=700, margin=dict(l=0, r=0, b=0, t=40))
 
-    # Frases descritivas automáticas
-    frases = []
-    for local in df["LOCAL"].unique():
-        sub_df = df[df["LOCAL"] == local]
-        for furo in sub_df["FURO"].unique():
-            dados = sub_df[sub_df["FURO"] == furo]
-            maior = dados["MN_%"].max()
-            media = dados["MN_%"].mean()
-            frases.append(html.P(
-                f"Na localidade {local}, no furo {furo}, encontramos manganês com teor máximo de {maior:.2f}%. "
-                f"A média das {len(dados)} amostras analisadas é de {media:.2f}%."
-            ))
+    mensagens = []
+    for loc in filtered["LOCALIDADE"].unique():
+        sub = filtered[filtered["LOCALIDADE"] == loc]
+        media = sub["MN_%"].mean()
+        maior = sub.loc[sub["MN_%"].idxmax()]
+        mensagens.append(html.P(f"Na localidade {loc}, no furo {maior['FURO']} encontramos manganês com teor de {maior['MN_%']}% aferido pelo aparelho X-MET8000 por fluorescência."))
+        mensagens.append(html.P(f"A média de {len(sub)} amostras em {loc} é de {media:.2f}%."))
 
-    return fig, frases
+    return fig, mensagens
 
-# Execução local
+# Callback para gráfico de barras
+@app.callback(
+    Output("graph-bar", "figure"),
+    Input("range-slider", "value")
+)
+def bar_chart(range_mn):
+    if df.empty:
+        return go.Figure()
+
+    filtro = df[(df["MN_%"] >= range_mn[0]) & (df["MN_%"] <= range_mn[1])]
+    agrupado = filtro.groupby(["LOCALIDADE", "FURO"]).agg(
+        MEDIA_MN=("MN_%", "mean"),
+        MAX_MN=("MN_%", "max"),
+        AMOSTRAS=("MN_%", "count")
+    ).reset_index()
+
+    fig = px.bar(agrupado, x="FURO", y="MEDIA_MN", color="LOCALIDADE",
+                 hover_data=["MAX_MN", "AMOSTRAS"],
+                 title="Média de Manganês por Furo e Localidade")
+    fig.update_layout(barmode="group", height=600)
+    return fig
+
+# Execução
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000, debug=False)
