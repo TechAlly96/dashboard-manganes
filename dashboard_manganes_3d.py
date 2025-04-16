@@ -3,9 +3,8 @@ import pandas as pd
 import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
-import os
 
-# Caminho absoluto para o arquivo ASSAY.xlsx dentro da pasta 'data'
+# Caminho absoluto para o arquivo Excel dentro da pasta 'data'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 
@@ -17,26 +16,20 @@ app.title = 'Dashboard Interativo - Análise de Manganês'
 try:
     df = pd.read_excel(FILE_PATH)
 
-    # Validação das colunas esperadas
-    colunas_necessarias = ['Mn', 'DEPTH_TO', 'HOLE_ID']
+    # Verificação de colunas necessárias
+    colunas_necessarias = ['Mn', 'Furo', 'Z']
     for col in colunas_necessarias:
         if col not in df.columns:
             raise ValueError(f"Coluna obrigatória ausente: {col}")
 
-    # Dados estatísticos
-    total_amostras = len(df)
-    teor_medio = df['Mn'].mean()
-    maior_teor = df['Mn'].max()
-    menor_teor = df['Mn'].min()
-    unique_furos = df['HOLE_ID'].unique()
+    df['Mn'] = df['Mn'].astype(float)
+    erro_carregamento = None
 
 except Exception as e:
     df = pd.DataFrame()
     erro_carregamento = str(e)
-else:
-    erro_carregamento = None
 
-# Layout do dashboard
+# Layout
 app.layout = html.Div([
     html.H1("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
 
@@ -56,12 +49,10 @@ app.layout = html.Div([
             value=0,
             marks={i: f"{i}%" for i in range(0, 51, 10)},
             tooltip={"placement": "bottom", "always_visible": True}
-        )
-    ], style={'margin': '20px'}),
-
-    html.Div(id='graficos'),
-
-    html.Div(id='mensagem-erro', style={'color': 'red', 'textAlign': 'center', 'marginTop': '20px'})
+        ),
+        html.Div(id='graficos'),
+        html.Div(id='mensagem-erro', style={'color': 'red', 'textAlign': 'center', 'marginTop': '20px'})
+    ], style={'margin': '20px'})
 ])
 
 # Callback principal
@@ -76,25 +67,24 @@ def atualizar_grafico(tab, teor_minimo):
         return [], f"Erro ao carregar os dados: {erro_carregamento}"
 
     df_filtrado = df[df['Mn'] >= teor_minimo]
-
     if df_filtrado.empty:
-        return [], "Dados não disponíveis."
+        return [], "Dados não disponíveis para o filtro selecionado."
 
     if tab == 'tab-3d':
         fig = px.scatter_3d(
             df_filtrado,
-            x='HOLE_ID',
-            y='DEPTH_TO',
-            z='Mn',
+            x='Furo',
+            y='Mn',
+            z='Z',
             color='Mn',
             color_continuous_scale='YlOrRd',
             title='Visualização 3D - Teor de Manganês'
         )
     else:
-        media_por_furo = df_filtrado.groupby('HOLE_ID')['Mn'].mean().reset_index()
+        media_por_furo = df_filtrado.groupby('Furo')['Mn'].mean().reset_index()
         fig = px.bar(
             media_por_furo,
-            x='HOLE_ID',
+            x='Furo',
             y='Mn',
             title='Teor Médio por Furo',
             color='Mn',
@@ -103,7 +93,8 @@ def atualizar_grafico(tab, teor_minimo):
 
     return [dcc.Graph(figure=fig)], ""
 
-# Execução do servidor local
+# Execução
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
 
