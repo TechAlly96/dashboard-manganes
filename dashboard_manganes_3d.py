@@ -4,7 +4,7 @@ import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
 
-# Caminho absoluto para o arquivo
+# Caminho absoluto do arquivo
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 
@@ -12,26 +12,16 @@ FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 app = dash.Dash(__name__)
 app.title = 'Dashboard Interativo - Análise de Manganês'
 
-# Carregamento dos dados
+# Leitura dos dados
 try:
     df = pd.read_excel(FILE_PATH)
 
-    # Renomeia as colunas para compatibilidade com o dashboard
-    df.rename(columns={
-        'ID': 'Furo',
-        'TO': 'Z'
-    }, inplace=True)
-
-    # Converte teor e profundidades para float, caso venham como string com vírgula
-    df['Mn'] = df['Mn'].astype(str).str.replace(',', '.').astype(float)
-    df['Z'] = df['Z'].astype(str).str.replace(',', '.').astype(float)
-
-    # Validação das colunas
     colunas_necessarias = ['Mn', 'Furo', 'Z']
     for col in colunas_necessarias:
         if col not in df.columns:
             raise ValueError(f"Coluna obrigatória ausente: {col}")
 
+    df['Mn'] = df['Mn'].astype(float)
     erro_carregamento = None
 except Exception as e:
     df = pd.DataFrame()
@@ -63,7 +53,7 @@ app.layout = html.Div([
     ], style={'margin': '20px'})
 ])
 
-# Callback de atualização
+# Callback para atualização dos gráficos
 @app.callback(
     Output('graficos', 'children'),
     Output('mensagem-erro', 'children'),
@@ -85,7 +75,16 @@ def atualizar_grafico(tab, teor_minimo):
             y='Mn',
             z='Z',
             color='Mn',
-            color_continuous_scale='YlOrRd',
+            color_continuous_scale=[
+                [0.0, 'darkblue'],     # 0–5%
+                [0.1, 'blue'],         # 5–10%
+                [0.2, 'lightblue'],    # 10–15%
+                [0.3, 'green'],        # 15–20%
+                [0.4, 'yellow'],       # 20–30%
+                [0.6, 'orange'],       # 30–40%
+                [0.8, 'red'],          # 40–50%
+                [1.0, 'darkred']       # >50%
+            ],
             title='Visualização 3D - Teor de Manganês'
         )
     else:
