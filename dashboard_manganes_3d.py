@@ -3,57 +3,73 @@ import pandas as pd
 import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
+import plotly.graph_objects as go
+import dash_bootstrap_components as dbc
 
-# Caminho absoluto do arquivo
+# Caminho para o arquivo Excel
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 
 # Inicializa o app
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = 'Dashboard Interativo - Análise de Manganês'
 
 # Leitura dos dados
 try:
     df = pd.read_excel(FILE_PATH)
 
-    colunas_necessarias = ['Mn', 'Furo', 'Z']
-    for col in colunas_necessarias:
-        if col not in df.columns:
-            raise ValueError(f"Coluna obrigatória ausente: {col}")
+    # Corrige separador decimal e converte para float
+    df['DEPTH_FROM'] = df['DEPTH_FROM'].astype(str).str.replace(',', '.').astype(float)
+    df['DEPTH_TO'] = df['DEPTH_TO'].astype(str).str.replace(',', '.').astype(float)
+    df['Mn'] = pd.to_numeric(df['Mn'], errors='coerce')
+    df = df.dropna(subset=['Mn', 'DEPTH_FROM', 'DEPTH_TO'])
 
-    df['Mn'] = df['Mn'].astype(float)
     erro_carregamento = None
 except Exception as e:
     df = pd.DataFrame()
     erro_carregamento = str(e)
 
-# Layout do dashboard
-app.layout = html.Div([
-    html.H1("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
+# Função para definir cores personalizadas conforme faixa de Mn
+def faixa_cor_mn(valor):
+    if valor <= 5:
+        return 'darkblue'
+    elif valor <= 10:
+        return 'deepskyblue'
+    elif valor <= 15:
+        return 'green'
+    elif valor <= 20:
+        return 'yellow'
+    elif valor <= 30:
+        return 'orange'
+    elif valor <= 40:
+        return 'red'
+    else:
+        return 'darkred'
 
-    html.Div([
-        dcc.Tabs(id='tabs', value='tab-3d', children=[
-            dcc.Tab(label='Visualização 3D', value='tab-3d'),
-            dcc.Tab(label='Gráfico de Barras por Furo', value='tab-barras')
-        ])
+df['cor'] = df['Mn'].apply(faixa_cor_mn)
+
+# Layout
+app.layout = dbc.Container([
+    html.H2("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
+    dcc.Slider(
+        id='slider-teor',
+        min=0,
+        max=50,
+        step=1,
+        value=0,
+        marks={i: f"{i}%" for i in range(0, 51, 5)},
+        tooltip={"placement": "bottom", "always_visible": True}
+    ),
+    html.Br(),
+    dcc.Tabs(id='tabs', value='tab-3d', children=[
+        dcc.Tab(label='Visualização 3D', value='tab-3d'),
+        dcc.Tab(label='Teor Médio por Furo', value='tab-barras')
     ]),
+    html.Div(id='graficos'),
+    html.Div(id='mensagem-erro', style={'color': 'red', 'textAlign': 'center', 'marginTop': '20px'})
+], fluid=True)
 
-    html.Div([
-        dcc.Slider(
-            id='slider-teor',
-            min=0,
-            max=50,
-            step=1,
-            value=0,
-            marks={i: f"{i}%" for i in range(0, 51, 10)},
-            tooltip={"placement": "bottom", "always_visible": True}
-        ),
-        html.Div(id='graficos'),
-        html.Div(id='mensagem-erro', style={'color': 'red', 'textAlign': 'center', 'marginTop': '20px'})
-    ], style={'margin': '20px'})
-])
-
-# Callback para atualização dos gráficos
+# Callback dos gráficos
 @app.callback(
     Output('graficos', 'children'),
     Output('mensagem-erro', 'children'),
@@ -69,37 +85,48 @@ def atualizar_grafico(tab, teor_minimo):
         return [], "Dados não disponíveis para o filtro selecionado."
 
     if tab == 'tab-3d':
-        fig = px.scatter_3d(
-            df_filtrado,
-            x='Furo',
-            y='Mn',
-            z='Z',
-            color='Mn',
-            color_continuous_scale=[
-                [0.0, 'darkblue'],     # 0–5%
-                [0.1, 'blue'],         # 5–10%
-                [0.2, 'lightblue'],    # 10–15%
-                [0.3, 'green'],        # 15–20%
-                [0.4, 'yellow'],       # 20–30%
-                [0.6, 'orange'],       # 30–40%
-                [0.8, 'red'],          # 40–50%
-                [1.0, 'darkred']       # >50%
-            ],
-            title='Visualização 3D - Teor de Manganês'
+        fig = go.Figure(data=[
+            go.Scatter3d(
+                x=df_filtrado['Furo'],
+                y=df_filtrado['DEPTH_FROM'],
+                z=df_filtrado['Mn'],
+                mode='markers',
+                marker=dict(
+                    size=6,
+                    color=df_filtrado['Mn'],
+                    colorscale=[
+                        [0.0, 'darkblue'],
+                        [0.1, 'deepskyblue'],
+                        [0.3, 'green'],
+                        [0.4, 'yellow'],
+                        [0.6, 'orange'],
+                        [0.8, 'red'],
+                        [1.0, 'darkred']
+                    ],
+                    colorbar=dict(title='Mn (%)')
+                ),
+                text=df_filtrado['LOCAL']
+            )
+        ])
+        fig.update_layout(
+            margin=dict(l=0, r=0, b=0, t=0),
+            scene=dict(
+                xaxis_title="Furo",
+                yaxis_title="Profundidade (m)",
+                zaxis_title="Mn (%)",
+                yaxis=dict(autorange="reversed")
+            )
         )
     else:
-        media_por_furo = df_filtrado.groupby('Furo')['Mn'].mean().reset_index()
-        fig = px.bar(
-            media_por_furo,
-            x='Furo',
-            y='Mn',
-            color='Mn',
-            color_continuous_scale='YlGnBu',
-            title='Teor Médio por Furo'
-        )
+        media = df_filtrado.groupby('Furo')['Mn'].mean().reset_index()
+        fig = px.bar(media, x='Furo', y='Mn', color='Mn',
+                     color_continuous_scale=[
+                        'darkblue', 'deepskyblue', 'green', 'yellow', 'orange', 'red', 'darkred'
+                     ],
+                     title='Teor Médio de Mn por Furo')
 
     return [dcc.Graph(figure=fig)], ""
 
-# Execução
+# Executar localmente ou no Render
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
