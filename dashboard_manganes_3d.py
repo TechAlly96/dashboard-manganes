@@ -1,131 +1,142 @@
 import pandas as pd
 import plotly.graph_objs as go
 import dash
-from dash import dcc, html, Input, Output
 import dash_bootstrap_components as dbc
-import os
+from dash import dcc, html, Input, Output
 
-# Carregar os dados
-df = pd.read_excel("ASSAY.xlsx")
+# Caminho para o arquivo Excel
+df = pd.read_excel("data/ASSAY.xlsx")
 
-# Normalizar nomes de colunas esperadas
-colunas_esperadas = [
-    "Localidade", "Furo", "Z (m)", "Mn (%)"
-]
-df.columns = [col.strip() for col in df.columns]
+# Nomes das colunas
+COLUNA_FURO = "Furo"
+COLUNA_DEPTH_FROM = "Profundidade_Inicial"
+COLUNA_DEPTH_TO = "Profundidade_Final"
+COLUNA_MN = "Mn"
+COLUNA_LOCALIDADE = "Localidade"
 
-# Verificar colunas obrigatórias
-for coluna in colunas_esperadas:
-    if coluna not in df.columns:
-        raise ValueError(f"Coluna obrigatória '{coluna}' não encontrada na planilha ASSAY.xlsx")
+# Verifica colunas obrigatórias
+for col in [COLUNA_FURO, COLUNA_DEPTH_FROM, COLUNA_DEPTH_TO, COLUNA_MN, COLUNA_LOCALIDADE]:
+    if col not in df.columns:
+        raise ValueError(f"Coluna obrigatória ausente: {col}")
 
-# Função para obter a cor com base no teor de manganês
-def obter_cor(teor):
-    if teor <= 5:
-        return 'darkblue'
-    elif teor <= 10:
-        return 'deepskyblue'
-    elif teor <= 15:
-        return 'green'
-    elif teor <= 20:
-        return 'yellow'
-    elif teor <= 30:
-        return 'orange'
-    elif teor <= 40:
-        return 'red'
-    else:
-        return 'darkred'
-
-# Cores para cada ponto
-cores = df["Mn (%)"].apply(obter_cor)
-
-# Inicializa app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-server = app.server
+app.title = "Dashboard Interativo - Análise de Manganês"
 
-# Layout
-app.layout = dbc.Container([
-    html.H1("Dashboard 3D - Teor de Manganês por Furo", className="text-center my-4"),
+def color_scale(mn):
+    if mn < 5:
+        return "darkblue"
+    elif mn < 10:
+        return "deepskyblue"
+    elif mn < 15:
+        return "green"
+    elif mn < 20:
+        return "yellow"
+    elif mn < 30:
+        return "orange"
+    elif mn < 40:
+        return "red"
+    else:
+        return "darkred"
 
-    dbc.Row([
-        dbc.Col([
-            html.Label("Selecione um furo:"),
+app.layout = html.Div([
+    html.H1("Dashboard Interativo - Análise de Manganês", style={"textAlign": "center"}),
+    dcc.Tabs([
+        dcc.Tab(label="Visualização 3D", children=[
+            html.Label("Filtrar por Teor de Mn mínimo (%)"),
+            dcc.Slider(0, 50, step=1, value=0, marks={i: f"{i}%" for i in range(0, 51, 10)}, id="mn-slider"),
             dcc.Dropdown(
-                id='dropdown-furo',
-                options=[{'label': f, 'value': f} for f in sorted(df['Furo'].unique())],
-                value=df['Furo'].unique()[0]
-            )
-        ], width=6),
-    ]),
-
-    html.Div(id='descricao-furo', className="my-3"),
-
-    dcc.Graph(id='grafico-3d'),
-
-    html.Hr(),
-    html.H3("Gráfico de Pizza por Localidade"),
-    dcc.Graph(id='grafico-pizza')
+                options=[{"label": furo, "value": furo} for furo in sorted(df[COLUNA_FURO].unique())],
+                id="furo-dropdown",
+                placeholder="Selecionar furo para análise detalhada",
+                multi=False
+            ),
+            html.Div(id="descricao-furo"),
+            dcc.Graph(id="grafico-3d")
+        ]),
+        dcc.Tab(label="Gráfico de Barras por Furo", children=[
+            dcc.Graph(id="grafico-barras", figure={})
+        ]),
+        dcc.Tab(label="Gráfico de Pizza por Localidade", children=[
+            dcc.Graph(id="grafico-pizza", figure={})
+        ])
+    ])
 ])
 
-# Callbacks
 @app.callback(
-    Output('grafico-3d', 'figure'),
-    Output('descricao-furo', 'children'),
-    Output('grafico-pizza', 'figure'),
-    Input('dropdown-furo', 'value')
+    Output("grafico-3d", "figure"),
+    Output("descricao-furo", "children"),
+    Input("mn-slider", "value"),
+    Input("furo-dropdown", "value")
 )
-def atualizar_dashboard(furo):
-    # Filtrar dados por furo selecionado
-    df_furo = df[df['Furo'] == furo]
-    maior_teor = df_furo['Mn (%)'].max()
-    amostras = len(df_furo)
+def atualizar_grafico(mn_min, furo_selecionado):
+    try:
+        dff = df[df[COLUNA_MN] >= mn_min]
+        if furo_selecionado:
+            dff = dff[dff[COLUNA_FURO] == furo_selecionado]
 
-    descricao = (
-        f"Análise do furo **{furo}** com **{amostras} amostras** (total de {amostras*2} disparos): "
-        f"O maior teor de manganês foi de {maior_teor:.2f}%."
-    )
+        if dff.empty:
+            return go.Figure(), html.P("Nenhum dado para exibir com esse filtro.", style={"color": "red"})
 
-    fig = go.Figure(data=[
-        go.Scatter3d(
-            x=df_furo['Furo'],
-            y=df_furo['Z (m)'],
-            z=df_furo['Mn (%)'],
-            mode='markers',
-            marker=dict(
-                size=5,
-                color=df_furo['Mn (%)'].apply(obter_cor),
-                opacity=0.8
-            ),
-            text=[f"Mn: {mn:.2f}%" for mn in df_furo['Mn (%)']],
-        )
-    ])
-    fig.update_layout(scene=dict(
-        xaxis_title='Furo',
-        yaxis_title='Profundidade (m)',
-        zaxis_title='Mn (%)'
-    ))
+        cores = dff[COLUNA_MN].apply(color_scale)
 
-    # Pizza por localidade
-    df_pizza = df.groupby('Localidade').agg({
-        'Mn (%)': 'max',
-        'Furo': 'count'
-    }).rename(columns={
-        'Mn (%)': 'Maior Teor (%)',
-        'Furo': 'Disparos'
-    })
+        fig = go.Figure(data=[go.Scatter3d(
+            x=dff[COLUNA_FURO],
+            y=dff[COLUNA_DEPTH_FROM],
+            z=dff[COLUNA_DEPTH_TO],
+            mode="markers",
+            marker=dict(size=5, color=cores),
+            text=[f"Mn: {v:.2f}%" for v in dff[COLUNA_MN]],
+            hoverinfo="text"
+        )])
+        fig.update_layout(scene=dict(
+            xaxis_title="Furo",
+            yaxis_title="Profundidade Inicial",
+            zaxis_title="Profundidade Final"
+        ))
 
-    pizza_fig = go.Figure(
-        data=[go.Pie(
-            labels=[f"{loc} ({row['Disparos']*2} disparos)" for loc, row in df_pizza.iterrows()],
-            values=df_pizza['Maior Teor (%)'],
-            hole=0.4,
-            textinfo='label+percent',
-            hoverinfo='label+value'
-        )]
-    )
-    pizza_fig.update_layout(title_text="Distribuição do Maior Teor por Localidade")
+        if furo_selecionado:
+            amostras = df[df[COLUNA_FURO] == furo_selecionado]
+            n_amostras = len(amostras)
+            max_mn = amostras[COLUNA_MN].max()
+            loc = amostras[COLUNA_LOCALIDADE].iloc[0]
+            frase = f"Análise do furo **{furo_selecionado}** localizado em **{loc}**, contendo **{n_amostras} amostras** e total de **{n_amostras * 2} disparos**. Maior teor de Mn registrado: **{max_mn:.2f}%**."
+            return fig, dcc.Markdown(frase)
 
-    return fig, dcc.Markdown(descricao), pizza_fig
+        return fig, ""
 
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=10000)
+    except Exception as e:
+        return go.Figure(), html.P(f"Erro ao carregar os dados: {e}", style={"color": "red"})
+
+@app.callback(
+    Output("grafico-barras", "figure"),
+    Input("mn-slider", "value")
+)
+def grafico_barras(mn_min):
+    dff = df[df[COLUNA_MN] >= mn_min]
+    barras = dff.groupby(COLUNA_FURO)[COLUNA_MN].mean().sort_values(ascending=False)
+    return go.Figure(data=[go.Bar(x=barras.index, y=barras.values, marker_color="teal")])
+
+@app.callback(
+    Output("grafico-pizza", "figure"),
+    Input("mn-slider", "value")
+)
+def grafico_pizza(mn_min):
+    dff = df[df[COLUNA_MN] >= mn_min]
+    localidade_max = dff.groupby(COLUNA_LOCALIDADE)[COLUNA_MN].max()
+    localidade_contagem = df[COLUNA_LOCALIDADE].value_counts()
+
+    labels = []
+    values = []
+    texto = []
+    for loc in localidade_max.index:
+        labels.append(loc)
+        values.append(localidade_max[loc])
+        amostras = localidade_contagem[loc]
+        texto.append(f"Maior Mn: {localidade_max[loc]:.2f}%\\nDisparos: {amostras * 2}")
+
+    fig = go.Figure(data=[go.Pie(labels=labels, values=values, text=texto, hoverinfo="label+text+percent")])
+    fig.update_layout(title="Distribuição do Maior Teor de Manganês por Localidade")
+    return fig
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000, debug=False)
