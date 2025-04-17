@@ -4,12 +4,15 @@ import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
 
+# Caminho absoluto do arquivo
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 
+# Inicializa o app
 app = dash.Dash(__name__)
 app.title = 'Dashboard Interativo - Análise de Manganês'
 
+# Leitura dos dados
 try:
     df = pd.read_excel(FILE_PATH)
 
@@ -20,11 +23,11 @@ try:
 
     df['Mn'] = df['Mn'].astype(float)
     erro_carregamento = None
-
 except Exception as e:
     df = pd.DataFrame()
     erro_carregamento = str(e)
 
+# Layout do dashboard
 app.layout = html.Div([
     html.H1("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
 
@@ -50,6 +53,7 @@ app.layout = html.Div([
     ], style={'margin': '20px'})
 ])
 
+# Callback para atualização dos gráficos
 @app.callback(
     Output('graficos', 'children'),
     Output('mensagem-erro', 'children'),
@@ -80,12 +84,13 @@ def atualizar_grafico(tab, teor_minimo):
             media_por_furo,
             x='Furo',
             y='Mn',
-            title='Teor Médio por Furo',
             color='Mn',
-            color_continuous_scale='YlGnBu'
+            color_continuous_scale='YlGnBu',
+            title='Teor Médio por Furo'
         )
 
     return [dcc.Graph(figure=fig)], ""
 
+# Execução
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
