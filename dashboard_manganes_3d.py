@@ -1,22 +1,18 @@
-import os
+﻿import os
 import pandas as pd
 import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
 
-# Caminho absoluto para o arquivo Excel dentro da pasta 'data'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 
-# Inicialização do app
 app = dash.Dash(__name__)
 app.title = 'Dashboard Interativo - Análise de Manganês'
 
-# Tentativa de leitura dos dados
 try:
     df = pd.read_excel(FILE_PATH)
 
-    # Verificação de colunas necessárias
     colunas_necessarias = ['Mn', 'Furo', 'Z']
     for col in colunas_necessarias:
         if col not in df.columns:
@@ -29,7 +25,6 @@ except Exception as e:
     df = pd.DataFrame()
     erro_carregamento = str(e)
 
-# Layout
 app.layout = html.Div([
     html.H1("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
 
@@ -55,7 +50,6 @@ app.layout = html.Div([
     ], style={'margin': '20px'})
 ])
 
-# Callback principal
 @app.callback(
     Output('graficos', 'children'),
     Output('mensagem-erro', 'children'),
@@ -93,6 +87,5 @@ def atualizar_grafico(tab, teor_minimo):
 
     return [dcc.Graph(figure=fig)], ""
 
-# Execução
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
