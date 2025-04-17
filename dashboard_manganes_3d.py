@@ -3,10 +3,9 @@ import pandas as pd
 import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
-import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 
-# Caminho para o arquivo Excel
+# Caminho da planilha
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILE_PATH = os.path.join(BASE_DIR, 'data', 'ASSAY.xlsx')
 
@@ -15,118 +14,122 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = 'Dashboard Interativo - Análise de Manganês'
 
 # Leitura dos dados
-try:
-    df = pd.read_excel(FILE_PATH)
+df = pd.read_excel(FILE_PATH)
 
-    # Corrige separador decimal e converte para float
-    df['DEPTH_FROM'] = df['DEPTH_FROM'].astype(str).str.replace(',', '.').astype(float)
-    df['DEPTH_TO'] = df['DEPTH_TO'].astype(str).str.replace(',', '.').astype(float)
-    df['Mn'] = pd.to_numeric(df['Mn'], errors='coerce')
-    df = df.dropna(subset=['Mn', 'DEPTH_FROM', 'DEPTH_TO'])
+# Ajuste de tipos
+df['Mn'] = df['Mn'].astype(float)
 
-    erro_carregamento = None
-except Exception as e:
-    df = pd.DataFrame()
-    erro_carregamento = str(e)
-
-# Função para definir cores personalizadas conforme faixa de Mn
-def faixa_cor_mn(valor):
-    if valor <= 5:
-        return 'darkblue'
-    elif valor <= 10:
-        return 'deepskyblue'
-    elif valor <= 15:
-        return 'green'
-    elif valor <= 20:
-        return 'yellow'
-    elif valor <= 30:
-        return 'orange'
-    elif valor <= 40:
-        return 'red'
-    else:
-        return 'darkred'
-
-df['cor'] = df['Mn'].apply(faixa_cor_mn)
-
-# Layout
+# Layout do dashboard
 app.layout = dbc.Container([
-    html.H2("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
-    dcc.Slider(
-        id='slider-teor',
-        min=0,
-        max=50,
-        step=1,
-        value=0,
-        marks={i: f"{i}%" for i in range(0, 51, 5)},
-        tooltip={"placement": "bottom", "always_visible": True}
-    ),
-    html.Br(),
-    dcc.Tabs(id='tabs', value='tab-3d', children=[
-        dcc.Tab(label='Visualização 3D', value='tab-3d'),
-        dcc.Tab(label='Teor Médio por Furo', value='tab-barras')
-    ]),
-    html.Div(id='graficos'),
-    html.Div(id='mensagem-erro', style={'color': 'red', 'textAlign': 'center', 'marginTop': '20px'})
+    html.H1("Dashboard Interativo - Análise de Manganês", style={'textAlign': 'center'}),
+    html.Hr(),
+
+    dbc.Row([
+        dbc.Col([
+            html.Label("Selecionar localidade:"),
+            dcc.Dropdown(
+                id='dropdown-local',
+                options=[{'label': loc, 'value': loc} for loc in sorted(df['LOCAL'].unique())],
+                value=sorted(df['LOCAL'].unique())[0],
+                placeholder="Selecione a localidade"
+            ),
+            html.Br(),
+
+            html.Label("Selecionar furo:"),
+            dcc.Dropdown(id='dropdown-furo', placeholder="Selecione o furo"),
+
+            html.Br(),
+            dcc.Slider(
+                id='slider-teor',
+                min=0,
+                max=50,
+                step=1,
+                value=0,
+                marks={i: f"{i}%" for i in range(0, 51, 10)},
+                tooltip={"placement": "bottom", "always_visible": True}
+            ),
+        ], width=4),
+
+        dbc.Col([
+            dcc.Tabs(id='tabs', value='tab-3d', children=[
+                dcc.Tab(label='Visualização 3D', value='tab-3d'),
+                dcc.Tab(label='Gráfico de Barras por Furo', value='tab-barras')
+            ]),
+            html.Div(id='graficos'),
+            html.Div(id='frase-inteligente', style={'marginTop': '20px', 'fontWeight': 'bold'})
+        ], width=8)
+    ])
 ], fluid=True)
 
-# Callback dos gráficos
+# Callback para atualizar dropdown de furos
 @app.callback(
-    Output('graficos', 'children'),
-    Output('mensagem-erro', 'children'),
-    Input('tabs', 'value'),
-    Input('slider-teor', 'value')
+    Output('dropdown-furo', 'options'),
+    Input('dropdown-local', 'value')
 )
-def atualizar_grafico(tab, teor_minimo):
-    if df.empty:
-        return [], f"Erro ao carregar os dados: {erro_carregamento}"
+def atualizar_furos(local):
+    opcoes = df[df['LOCAL'] == local]['Furo'].unique()
+    return [{'label': f, 'value': f} for f in sorted(opcoes)]
 
-    df_filtrado = df[df['Mn'] >= teor_minimo]
+# Callback principal para atualizar gráficos e frases
+@app.callback(
+    [Output('graficos', 'children'),
+     Output('frase-inteligente', 'children')],
+    [Input('tabs', 'value'),
+     Input('slider-teor', 'value'),
+     Input('dropdown-local', 'value'),
+     Input('dropdown-furo', 'value')]
+)
+def atualizar_dashboard(tab, teor_minimo, local, furo):
+    df_filtrado = df[(df['Mn'] >= teor_minimo) & (df['LOCAL'] == local)]
+
+    if furo:
+        df_filtrado = df_filtrado[df_filtrado['Furo'] == furo]
+
     if df_filtrado.empty:
-        return [], "Dados não disponíveis para o filtro selecionado."
+        return [], "Nenhum dado disponível para os filtros selecionados."
+
+    # Definir escala de cor manual
+    def cor_personalizada(valor):
+        if valor < 5: return "darkblue"
+        elif valor < 10: return "deepskyblue"
+        elif valor < 15: return "green"
+        elif valor < 20: return "yellow"
+        elif valor < 30: return "orange"
+        elif valor < 40: return "red"
+        else: return "darkred"
+
+    df_filtrado['cor'] = df_filtrado['Mn'].apply(cor_personalizada)
 
     if tab == 'tab-3d':
-        fig = go.Figure(data=[
-            go.Scatter3d(
-                x=df_filtrado['Furo'],
-                y=df_filtrado['DEPTH_FROM'],
-                z=df_filtrado['Mn'],
-                mode='markers',
-                marker=dict(
-                    size=6,
-                    color=df_filtrado['Mn'],
-                    colorscale=[
-                        [0.0, 'darkblue'],
-                        [0.1, 'deepskyblue'],
-                        [0.3, 'green'],
-                        [0.4, 'yellow'],
-                        [0.6, 'orange'],
-                        [0.8, 'red'],
-                        [1.0, 'darkred']
-                    ],
-                    colorbar=dict(title='Mn (%)')
-                ),
-                text=df_filtrado['LOCAL']
-            )
-        ])
-        fig.update_layout(
-            margin=dict(l=0, r=0, b=0, t=0),
-            scene=dict(
-                xaxis_title="Furo",
-                yaxis_title="Profundidade (m)",
-                zaxis_title="Mn (%)",
-                yaxis=dict(autorange="reversed")
-            )
+        fig = px.scatter_3d(
+            df_filtrado,
+            x='Furo', y='Mn', z='DEPTH_FROM',
+            color='Mn',
+            color_continuous_scale=["darkblue", "deepskyblue", "green", "yellow", "orange", "red", "darkred"],
+            title=f"Visualização 3D - Teor de Mn em {local}"
         )
+        fig.update_layout(scene=dict(yaxis=dict(autorange="reversed")))
     else:
-        media = df_filtrado.groupby('Furo')['Mn'].mean().reset_index()
-        fig = px.bar(media, x='Furo', y='Mn', color='Mn',
-                     color_continuous_scale=[
-                        'darkblue', 'deepskyblue', 'green', 'yellow', 'orange', 'red', 'darkred'
-                     ],
-                     title='Teor Médio de Mn por Furo')
+        media_por_furo = df_filtrado.groupby('Furo')['Mn'].mean().reset_index()
+        fig = px.bar(
+            media_por_furo, x='Furo', y='Mn', color='Mn',
+            color_continuous_scale=["darkblue", "deepskyblue", "green", "yellow", "orange", "red", "darkred"],
+            title=f"Teor Médio por Furo - {local}"
+        )
 
-    return [dcc.Graph(figure=fig)], ""
+    # Frase descritiva
+    frases = []
+    if furo:
+        profundidades = df_filtrado[['DEPTH_FROM', 'DEPTH_TO']].astype(str).agg(' a '.join, axis=1).tolist()
+        teor_max = df_filtrado['Mn'].max()
+        frases.append(f"Furo {furo} apresenta teor máximo de {teor_max:.2f}% de manganês.")
+        frases.append(f"Intervalos amostrados: {', '.join(profundidades[:3])}...")
+    else:
+        teor_global = df_filtrado.groupby('Furo')['Mn'].mean().idxmax()
+        frases.append(f"Furo com maior teor médio: {teor_global}.")
 
-# Executar localmente ou no Render
+    return [dcc.Graph(figure=fig)], ' '.join(frases)
+
+# Execução
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    app.run(host='0.0.0.0', port=10000)
