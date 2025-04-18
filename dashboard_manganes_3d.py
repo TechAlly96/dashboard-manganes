@@ -1,11 +1,19 @@
+import os
 import pandas as pd
 import plotly.graph_objs as go
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
 
-# Caminho para o arquivo Excel
-df = pd.read_excel("data/ASSAY.xlsx")
+# Caminho absoluto para o arquivo Excel
+base_dir = os.path.dirname(os.path.abspath(__file__))
+arquivo_excel = os.path.join(base_dir, "data", "ASSAY.xlsx")
+
+# Leitura segura da planilha
+df = pd.read_excel(arquivo_excel)
+
+# Limpeza e padronização dos nomes de colunas
+df.columns = df.columns.str.strip().str.replace(' ', '_').str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
 
 # Nomes das colunas
 COLUNA_FURO = "Furo"
@@ -132,7 +140,7 @@ def grafico_pizza(mn_min):
         labels.append(loc)
         values.append(localidade_max[loc])
         amostras = localidade_contagem[loc]
-        texto.append(f"Maior Mn: {localidade_max[loc]:.2f}%\\nDisparos: {amostras * 2}")
+        texto.append(f"Maior Mn: {localidade_max[loc]:.2f}%\nDisparos: {amostras * 2}")
 
     fig = go.Figure(data=[go.Pie(labels=labels, values=values, text=texto, hoverinfo="label+text+percent")])
     fig.update_layout(title="Distribuição do Maior Teor de Manganês por Localidade")
