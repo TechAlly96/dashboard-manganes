@@ -1,7 +1,3 @@
-# Dashboard Manganês - Código Corrigido e Melhorado
-# Por: Marlon Myaggy
-# Descrição: Dashboard interativo com gráficos 3D de hastes, barras horizontais e pizza com informações completas
-
 import os
 import pandas as pd
 import plotly.graph_objs as go
@@ -10,19 +6,20 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
 
 # Caminho para o arquivo Excel
-excel_path = os.path.join("data", "ASSAY.xlsx")
-df = pd.read_excel(excel_path)
+file_path = os.path.join("data", "ASSAY.xlsx")
+df = pd.read_excel(file_path)
 
-# Padronização das colunas
-df.columns = df.columns.str.strip().str.replace(' ', '_').str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
+# Padronização dos nomes de colunas
+df.columns = df.columns.str.strip().str.replace(" ", "_").str.upper()
 
-# Mapeamento das colunas obrigatórias
-COLUNA_FURO = "Furo"
+# Nomes padronizados
+COLUNA_LOCALIDADE = "LOCAL"
+COLUNA_FURO = "FURO"
 COLUNA_DEPTH_FROM = "DEPTH_FROM"
 COLUNA_DEPTH_TO = "DEPTH_TO"
-COLUNA_MN = "Mn"
-COLUNA_LOCALIDADE = "LOCAL"
+COLUNA_MN = "MN"
 
+# Validação de colunas obrigatórias
 for col in [COLUNA_FURO, COLUNA_DEPTH_FROM, COLUNA_DEPTH_TO, COLUNA_MN, COLUNA_LOCALIDADE]:
     if col not in df.columns:
         raise ValueError(f"Coluna obrigatória ausente: {col}")
@@ -30,7 +27,6 @@ for col in [COLUNA_FURO, COLUNA_DEPTH_FROM, COLUNA_DEPTH_TO, COLUNA_MN, COLUNA_L
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Dashboard Interativo - Análise de Manganês"
 
-# Escala de cores
 def color_scale(mn):
     if mn < 5:
         return "darkblue"
@@ -47,29 +43,29 @@ def color_scale(mn):
     else:
         return "darkred"
 
-app.layout = dbc.Container([
-    html.H2("Dashboard Interativo - Análise de Manganês", className="text-center mt-4"),
+app.layout = html.Div([
+    html.H1("Dashboard Interativo - Análise de Manganês", style={"textAlign": "center"}),
     dcc.Tabs([
-        dcc.Tab(label="Gráfico 3D de Hastes", children=[
-            html.Br(),
+        dcc.Tab(label="Visualização 3D", children=[
             html.Label("Filtrar por Teor de Mn mínimo (%)"),
             dcc.Slider(0, 50, step=1, value=0, marks={i: f"{i}%" for i in range(0, 51, 10)}, id="mn-slider"),
             dcc.Dropdown(
-                options=[{"label": furo, "value": furo} for furo in sorted(df[COLUNA_FURO].unique())],
+                options=[{"label": str(furo), "value": str(furo)} for furo in sorted(df[COLUNA_FURO].dropna().astype(str).unique())],
                 id="furo-dropdown",
                 placeholder="Selecionar furo para análise detalhada",
+                multi=False
             ),
-            html.Div(id="descricao-furo", className="mt-3"),
+            html.Div(id="descricao-furo"),
             dcc.Graph(id="grafico-3d")
         ]),
         dcc.Tab(label="Gráfico de Barras por Furo", children=[
-            dcc.Graph(id="grafico-barras")
+            dcc.Graph(id="grafico-barras", figure={})
         ]),
         dcc.Tab(label="Gráfico de Pizza por Localidade", children=[
-            dcc.Graph(id="grafico-pizza")
+            dcc.Graph(id="grafico-pizza", figure={})
         ])
     ])
-], fluid=True)
+])
 
 @app.callback(
     Output("grafico-3d", "figure"),
@@ -77,55 +73,58 @@ app.layout = dbc.Container([
     Input("mn-slider", "value"),
     Input("furo-dropdown", "value")
 )
-def atualizar_grafico_3d(mn_min, furo_selecionado):
-    try:
-        dff = df[df[COLUNA_MN] >= mn_min]
-        if furo_selecionado:
-            dff = dff[dff[COLUNA_FURO] == furo_selecionado]
+def atualizar_grafico(mn_min, furo_selecionado):
+    dff = df[df[COLUNA_MN] >= mn_min]
+    if furo_selecionado:
+        dff = dff[dff[COLUNA_FURO].astype(str) == str(furo_selecionado)]
 
-        if dff.empty:
-            return go.Figure(), html.P("Nenhum dado para exibir com esse filtro.", style={"color": "red"})
+    if dff.empty:
+        return go.Figure(), html.P("Nenhum dado para exibir com esse filtro.", style={"color": "red"})
 
-        fig = go.Figure()
-        for furo in dff[COLUNA_FURO].unique():
-            dados_furo = dff[dff[COLUNA_FURO] == furo]
-            for _, row in dados_furo.iterrows():
-                fig.add_trace(go.Scatter3d(
-                    x=[furo, furo],
-                    y=[-row[COLUNA_DEPTH_FROM], -row[COLUNA_DEPTH_TO]],
-                    z=[0, 0],
-                    mode="lines",
-                    line=dict(color=color_scale(row[COLUNA_MN]), width=10),
-                    name=f"{furo} | Mn: {row[COLUNA_MN]:.2f}%"
-                ))
+    shapes = []
+    for _, row in dff.iterrows():
+        color = color_scale(row[COLUNA_MN])
+        shapes.append(dict(
+            type="line",
+            x0=row[COLUNA_FURO], x1=row[COLUNA_FURO],
+            y0=row[COLUNA_DEPTH_FROM], y1=row[COLUNA_DEPTH_TO],
+            z0=0, z1=0,
+            line=dict(color=color, width=10)
+        ))
 
-        fig.update_layout(scene=dict(
-            xaxis_title="Furo",
-            yaxis_title="Profundidade (m)",
-            zaxis_title="",
-        ), showlegend=False)
+    fig = go.Figure()
+    for shape in shapes:
+        fig.add_trace(go.Scatter3d(
+            x=[shape['x0'], shape['x1']],
+            y=[shape['y0'], shape['y1']],
+            z=[shape['z0'], shape['z1']],
+            mode="lines",
+            line=dict(color=shape['line']['color'], width=5)
+        ))
 
-        if furo_selecionado:
-            amostras = df[df[COLUNA_FURO] == furo_selecionado]
-            n_amostras = len(amostras)
-            max_mn = amostras[COLUNA_MN].max()
-            min_mn = amostras[COLUNA_MN].min()
-            media_mn = amostras[COLUNA_MN].mean()
-            loc = amostras[COLUNA_LOCALIDADE].iloc[0]
-            frase = f"""
-**Análise do furo {furo_selecionado}**: localizado em **{loc}**, onde coletamos **{n_amostras} amostras por sondagem**,
-sendo uma amostra por metro perfurado armazenadas na caixa de amostra **ID:{furo_selecionado}**.
-A leitura foi realizada em **{n_amostras * 2} disparos XRF**.  
-**Maior teor de Mn (Manganês): {max_mn:.2f}%**  
-**Menor teor de Mn: {min_mn:.2f}%**  
-**Média de Mn: {media_mn:.2f}%**
-"""
-            return fig, dcc.Markdown(frase)
+    fig.update_layout(scene=dict(
+        xaxis_title="Furo",
+        yaxis_title="Profundidade Inicial",
+        zaxis_title="",
+        yaxis=dict(autorange="reversed")
+    ))
 
-        return fig, ""
+    if furo_selecionado:
+        amostras = df[df[COLUNA_FURO].astype(str) == str(furo_selecionado)]
+        n_amostras = len(amostras)
+        max_mn = amostras[COLUNA_MN].max()
+        min_mn = amostras[COLUNA_MN].min()
+        media_mn = amostras[COLUNA_MN].mean()
+        loc = amostras[COLUNA_LOCALIDADE].iloc[0]
+        frase = (
+            f"Análise do furo {furo_selecionado}: localizado em {loc}, onde coletamos {n_amostras} amostras por sondagem, "
+            f"sendo uma amostra por metro perfurado organizadas e armazenadas na caixa de amostra ID:{furo_selecionado}. "
+            f"A leitura dos elementos presentes em cada amostra com o aparelho XRF foi realizada em {n_amostras * 2} disparos de 15 segundos com raio de fluorescência. "
+            f"Maior teor de Mn=Manganês registrado: {max_mn:.2f}%. Menor teor de Manganês registrado foi: {min_mn:.2f}% e a média comparativa é de {media_mn:.2f}%"
+        )
+        return fig, dcc.Markdown(frase)
 
-    except Exception as e:
-        return go.Figure(), html.P(f"Erro ao carregar os dados: {e}", style={"color": "red"})
+    return fig, ""
 
 @app.callback(
     Output("grafico-barras", "figure"),
@@ -133,10 +132,13 @@ A leitura foi realizada em **{n_amostras * 2} disparos XRF**.
 )
 def grafico_barras(mn_min):
     dff = df[df[COLUNA_MN] >= mn_min]
-    barras = dff.groupby(COLUNA_FURO)[COLUNA_MN].mean().sort_values()
-    return go.Figure(data=[
-        go.Bar(y=barras.index, x=barras.values, orientation='h', marker_color="mediumturquoise")
-    ]).update_layout(title="Média de Mn por Furo", xaxis_title="Mn (%)", yaxis_title="Furo")
+    barras = dff.groupby(COLUNA_FURO)[COLUNA_MN].mean().sort_values(ascending=True)
+    return go.Figure(data=[go.Bar(
+        y=barras.index.astype(str),
+        x=barras.values,
+        orientation="h",
+        marker_color="teal"
+    )], layout=go.Layout(title="Média de Mn (%) por Furo", xaxis_title="Mn (%)", yaxis_title="Furo"))
 
 @app.callback(
     Output("grafico-pizza", "figure"),
@@ -144,22 +146,22 @@ def grafico_barras(mn_min):
 )
 def grafico_pizza(mn_min):
     dff = df[df[COLUNA_MN] >= mn_min]
-    localidades = dff.groupby(COLUNA_LOCALIDADE)
+    resumo = dff.groupby(COLUNA_LOCALIDADE).agg({
+        COLUNA_MN: ['mean', 'max', 'count']
+    })
+    resumo.columns = ['Mn_medio', 'Mn_max', 'N_amostras']
+    resumo = resumo.reset_index()
 
-    labels, valores, textos = [], [], []
-    for local, grupo in localidades:
-        max_mn = grupo[COLUNA_MN].max()
-        mean_mn = grupo[COLUNA_MN].mean()
-        amostras = grupo.shape[0]
-        disparos = amostras * 2
-        labels.append(local)
-        valores.append(max_mn)
-        textos.append(f"Máx: {max_mn:.2f}%\nMédia: {mean_mn:.2f}%\nAmostras: {amostras}\nDisparos: {disparos}")
-
-    fig = go.Figure(data=[
-        go.Pie(labels=labels, values=valores, text=textos, hoverinfo="label+text+percent")
-    ])
-    fig.update_layout(title="Distribuição Máxima de Mn por Localidade (sem duplicidade)")
+    fig = go.Figure(data=[go.Pie(
+        labels=resumo[COLUNA_LOCALIDADE],
+        values=resumo['Mn_max'],
+        hovertext=[
+            f"Localidade: {row[COLUNA_LOCALIDADE]}\nMaior Mn: {row['Mn_max']:.2f}%\nMédia Mn: {row['Mn_medio']:.2f}%\nAmostras: {row['N_amostras']}"
+            for _, row in resumo.iterrows()
+        ],
+        hoverinfo="label+text+percent"
+    )])
+    fig.update_layout(title="Distribuição do Maior Teor de Mn por Localidade")
     return fig
 
 if __name__ == "__main__":
