@@ -1,3 +1,7 @@
+# Dashboard Manganês - Código Corrigido e Melhorado
+# Por: Marlon Myaggy
+# Descrição: Dashboard interativo com gráficos 3D de hastes, barras horizontais e pizza com informações completas
+
 import os
 import pandas as pd
 import plotly.graph_objs as go
@@ -5,24 +9,20 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
 
-# Caminho absoluto para o arquivo Excel
-base_dir = os.path.dirname(os.path.abspath(__file__))
-arquivo_excel = os.path.join(base_dir, "data", "ASSAY.xlsx")
+# Caminho para o arquivo Excel
+excel_path = os.path.join("data", "ASSAY.xlsx")
+df = pd.read_excel(excel_path)
 
-# Leitura segura da planilha
-df = pd.read_excel(arquivo_excel)
-
-# Limpeza e padronização dos nomes de colunas
+# Padronização das colunas
 df.columns = df.columns.str.strip().str.replace(' ', '_').str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8')
 
-# Nomes das colunas
+# Mapeamento das colunas obrigatórias
 COLUNA_FURO = "Furo"
-COLUNA_DEPTH_FROM = "Profundidade_Inicial"
-COLUNA_DEPTH_TO = "Profundidade_Final"
+COLUNA_DEPTH_FROM = "DEPTH_FROM"
+COLUNA_DEPTH_TO = "DEPTH_TO"
 COLUNA_MN = "Mn"
-COLUNA_LOCALIDADE = "Localidade"
+COLUNA_LOCALIDADE = "LOCAL"
 
-# Verifica colunas obrigatórias
 for col in [COLUNA_FURO, COLUNA_DEPTH_FROM, COLUNA_DEPTH_TO, COLUNA_MN, COLUNA_LOCALIDADE]:
     if col not in df.columns:
         raise ValueError(f"Coluna obrigatória ausente: {col}")
@@ -30,6 +30,7 @@ for col in [COLUNA_FURO, COLUNA_DEPTH_FROM, COLUNA_DEPTH_TO, COLUNA_MN, COLUNA_L
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Dashboard Interativo - Análise de Manganês"
 
+# Escala de cores
 def color_scale(mn):
     if mn < 5:
         return "darkblue"
@@ -46,29 +47,29 @@ def color_scale(mn):
     else:
         return "darkred"
 
-app.layout = html.Div([
-    html.H1("Dashboard Interativo - Análise de Manganês", style={"textAlign": "center"}),
+app.layout = dbc.Container([
+    html.H2("Dashboard Interativo - Análise de Manganês", className="text-center mt-4"),
     dcc.Tabs([
-        dcc.Tab(label="Visualização 3D", children=[
+        dcc.Tab(label="Gráfico 3D de Hastes", children=[
+            html.Br(),
             html.Label("Filtrar por Teor de Mn mínimo (%)"),
             dcc.Slider(0, 50, step=1, value=0, marks={i: f"{i}%" for i in range(0, 51, 10)}, id="mn-slider"),
             dcc.Dropdown(
                 options=[{"label": furo, "value": furo} for furo in sorted(df[COLUNA_FURO].unique())],
                 id="furo-dropdown",
                 placeholder="Selecionar furo para análise detalhada",
-                multi=False
             ),
-            html.Div(id="descricao-furo"),
+            html.Div(id="descricao-furo", className="mt-3"),
             dcc.Graph(id="grafico-3d")
         ]),
         dcc.Tab(label="Gráfico de Barras por Furo", children=[
-            dcc.Graph(id="grafico-barras", figure={})
+            dcc.Graph(id="grafico-barras")
         ]),
         dcc.Tab(label="Gráfico de Pizza por Localidade", children=[
-            dcc.Graph(id="grafico-pizza", figure={})
+            dcc.Graph(id="grafico-pizza")
         ])
     ])
-])
+], fluid=True)
 
 @app.callback(
     Output("grafico-3d", "figure"),
@@ -76,7 +77,7 @@ app.layout = html.Div([
     Input("mn-slider", "value"),
     Input("furo-dropdown", "value")
 )
-def atualizar_grafico(mn_min, furo_selecionado):
+def atualizar_grafico_3d(mn_min, furo_selecionado):
     try:
         dff = df[df[COLUNA_MN] >= mn_min]
         if furo_selecionado:
@@ -85,29 +86,40 @@ def atualizar_grafico(mn_min, furo_selecionado):
         if dff.empty:
             return go.Figure(), html.P("Nenhum dado para exibir com esse filtro.", style={"color": "red"})
 
-        cores = dff[COLUNA_MN].apply(color_scale)
+        fig = go.Figure()
+        for furo in dff[COLUNA_FURO].unique():
+            dados_furo = dff[dff[COLUNA_FURO] == furo]
+            for _, row in dados_furo.iterrows():
+                fig.add_trace(go.Scatter3d(
+                    x=[furo, furo],
+                    y=[-row[COLUNA_DEPTH_FROM], -row[COLUNA_DEPTH_TO]],
+                    z=[0, 0],
+                    mode="lines",
+                    line=dict(color=color_scale(row[COLUNA_MN]), width=10),
+                    name=f"{furo} | Mn: {row[COLUNA_MN]:.2f}%"
+                ))
 
-        fig = go.Figure(data=[go.Scatter3d(
-            x=dff[COLUNA_FURO],
-            y=dff[COLUNA_DEPTH_FROM],
-            z=dff[COLUNA_DEPTH_TO],
-            mode="markers",
-            marker=dict(size=5, color=cores),
-            text=[f"Mn: {v:.2f}%" for v in dff[COLUNA_MN]],
-            hoverinfo="text"
-        )])
         fig.update_layout(scene=dict(
             xaxis_title="Furo",
-            yaxis_title="Profundidade Inicial",
-            zaxis_title="Profundidade Final"
-        ))
+            yaxis_title="Profundidade (m)",
+            zaxis_title="",
+        ), showlegend=False)
 
         if furo_selecionado:
             amostras = df[df[COLUNA_FURO] == furo_selecionado]
             n_amostras = len(amostras)
             max_mn = amostras[COLUNA_MN].max()
+            min_mn = amostras[COLUNA_MN].min()
+            media_mn = amostras[COLUNA_MN].mean()
             loc = amostras[COLUNA_LOCALIDADE].iloc[0]
-            frase = f"Análise do furo **{furo_selecionado}** localizado em **{loc}**, contendo **{n_amostras} amostras** e total de **{n_amostras * 2} disparos**. Maior teor de Mn registrado: **{max_mn:.2f}%**."
+            frase = f"""
+**Análise do furo {furo_selecionado}**: localizado em **{loc}**, onde coletamos **{n_amostras} amostras por sondagem**,
+sendo uma amostra por metro perfurado armazenadas na caixa de amostra **ID:{furo_selecionado}**.
+A leitura foi realizada em **{n_amostras * 2} disparos XRF**.  
+**Maior teor de Mn (Manganês): {max_mn:.2f}%**  
+**Menor teor de Mn: {min_mn:.2f}%**  
+**Média de Mn: {media_mn:.2f}%**
+"""
             return fig, dcc.Markdown(frase)
 
         return fig, ""
@@ -121,8 +133,10 @@ def atualizar_grafico(mn_min, furo_selecionado):
 )
 def grafico_barras(mn_min):
     dff = df[df[COLUNA_MN] >= mn_min]
-    barras = dff.groupby(COLUNA_FURO)[COLUNA_MN].mean().sort_values(ascending=False)
-    return go.Figure(data=[go.Bar(x=barras.index, y=barras.values, marker_color="teal")])
+    barras = dff.groupby(COLUNA_FURO)[COLUNA_MN].mean().sort_values()
+    return go.Figure(data=[
+        go.Bar(y=barras.index, x=barras.values, orientation='h', marker_color="mediumturquoise")
+    ]).update_layout(title="Média de Mn por Furo", xaxis_title="Mn (%)", yaxis_title="Furo")
 
 @app.callback(
     Output("grafico-pizza", "figure"),
@@ -130,20 +144,22 @@ def grafico_barras(mn_min):
 )
 def grafico_pizza(mn_min):
     dff = df[df[COLUNA_MN] >= mn_min]
-    localidade_max = dff.groupby(COLUNA_LOCALIDADE)[COLUNA_MN].max()
-    localidade_contagem = df[COLUNA_LOCALIDADE].value_counts()
+    localidades = dff.groupby(COLUNA_LOCALIDADE)
 
-    labels = []
-    values = []
-    texto = []
-    for loc in localidade_max.index:
-        labels.append(loc)
-        values.append(localidade_max[loc])
-        amostras = localidade_contagem[loc]
-        texto.append(f"Maior Mn: {localidade_max[loc]:.2f}%\nDisparos: {amostras * 2}")
+    labels, valores, textos = [], [], []
+    for local, grupo in localidades:
+        max_mn = grupo[COLUNA_MN].max()
+        mean_mn = grupo[COLUNA_MN].mean()
+        amostras = grupo.shape[0]
+        disparos = amostras * 2
+        labels.append(local)
+        valores.append(max_mn)
+        textos.append(f"Máx: {max_mn:.2f}%\nMédia: {mean_mn:.2f}%\nAmostras: {amostras}\nDisparos: {disparos}")
 
-    fig = go.Figure(data=[go.Pie(labels=labels, values=values, text=texto, hoverinfo="label+text+percent")])
-    fig.update_layout(title="Distribuição do Maior Teor de Manganês por Localidade")
+    fig = go.Figure(data=[
+        go.Pie(labels=labels, values=valores, text=textos, hoverinfo="label+text+percent")
+    ])
+    fig.update_layout(title="Distribuição Máxima de Mn por Localidade (sem duplicidade)")
     return fig
 
 if __name__ == "__main__":
