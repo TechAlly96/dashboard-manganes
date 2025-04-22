@@ -1,145 +1,167 @@
-# dashboard_manganes_3d.py
-
+import os
 import pandas as pd
-import plotly.graph_objs as go
 import dash
 import dash_bootstrap_components as dbc
 from dash import dcc, html, Input, Output
-import os
+import plotly.graph_objects as go
 
-# Caminho absoluto para o arquivo Excel
-file_path = os.path.abspath("data/ASSAY.xlsx")
-df = pd.read_excel(file_path)
+# Caminho absoluto para o arquivo
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FILE_PATH = os.path.join(BASE_DIR, "data", "ASSAY.xlsx")
 
-# Normalizar nomes das colunas
-df.columns = df.columns.str.strip().str.replace(' ', '_').str.replace(".", "_", regex=False)
+# Leitura e padronização
+df = pd.read_excel(FILE_PATH)
+df.columns = df.columns.str.strip().str.upper().str.replace(" ", "_")
 
-# Garantir colunas necessárias
-if "Furo" not in df.columns or "z" not in df.columns or "Mn" not in df.columns:
-    raise ValueError("Planilha deve conter as colunas 'Furo', 'z' (profundidade) e 'Mn'.")
+# Renomear colunas
+df = df.rename(columns={
+    "DEPTH_FROM": "DEPTH_FROM",
+    "DEPTH_TO": "DEPTH_TO",
+    "MN": "Mn",
+    "FURO": "Furo",
+    "LOCAL": "Localidade"
+})
 
-# Calcular Mn_% se necessário
-if "Mn_%" not in df.columns:
-    df["Mn_%"] = (df["Mn"] / 10000).round(2)  # de ppm para %
+# Converte DEPTH_FROM e DEPTH_TO para numérico (caso estejam como texto)
+df["DEPTH_FROM"] = pd.to_numeric(df["DEPTH_FROM"], errors="coerce")
+df["DEPTH_TO"] = pd.to_numeric(df["DEPTH_TO"], errors="coerce")
 
-# Lista de todos os furos conhecidos do projeto
-furos_conhecidos = [
-    "FCC-1-1", "FCC-2-2", "FCC-3-3", "FCC-4-4", "FCC-5-5", "FCC-6-6", "FCC-7-7", "FCC-8-8", "FCC-9-9", "FCC-10-10",
-    "FCN-1-25", "FCN-2-26", "FCN-3-27", "FCN-4-28", "FCN-5-29", "FCN-6-30",
-    "FBC-1-31", "FBC-2-32", "FBC-3-33", "FBC-4-34", "FBC-5-35", "FBC-6-36",
-    "FCZ-1-11", "FCZ-2-2", "FCZ-3-13", "FCZ-4-14", "FCZ-5-15", "FCZ-6-16",
-    "FMB-1-37", "FMB-2-38", "FMB-3-39", "FMB-4-40", "FMB-5-41", "FMB-6-42", "FMB-7-43", "FMB-8-44", "FMB-9-45",
-    "FMB-10-46", "FMB-11-47", "FMB-12-48", "FMB-13-49", "FMB-14-50", "FMB-15-51",
-    "FBU-1-17", "FBU-2-18", "FBU-3-19", "FBU-4-20", "FBU-5-21", "FBU-6-22", "FBU-7-23", "FBU-8-24",
-    "CN1-1-56", "CN1-2-57", "CN1-3-58", "CN1-4-59", "CN1-5-60", "CN1-6-61", "CN1-7-62", "CN1-8-63",
-    "FNA-1-54", "FNA-2-55"
-]
+# Remove linhas com valores ausentes nas colunas DEPTH
+df = df.dropna(subset=["DEPTH_FROM", "DEPTH_TO"])
 
-# Função para colorir as barras com base no teor
-def cor_mapa_calor(valor):
-    if valor < 5:
+# Cria coluna de profundidade média (z)
+df["z"] = (df["DEPTH_FROM"] + df["DEPTH_TO"]) / 2
+
+# Verifica colunas obrigatórias
+for col in ["Furo", "z", "Mn"]:
+    if col not in df.columns:
+        raise ValueError("Planilha deve conter as colunas 'Furo', 'z' (profundidade) e 'Mn'.")
+
+# Mapa de calor
+def color_mn(mn):
+    if mn < 5:
         return "darkblue"
-    elif valor < 10:
+    elif mn < 10:
         return "deepskyblue"
-    elif valor < 15:
+    elif mn < 15:
         return "green"
-    elif valor < 20:
+    elif mn < 20:
         return "yellow"
-    elif valor < 30:
+    elif mn < 30:
         return "orange"
-    elif valor < 40:
+    elif mn < 40:
         return "red"
     else:
         return "darkred"
 
-# Inicialização do app
+# App Dash
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.title = "Dashboard Interativo - Teores de Manganês"
+app.title = "Dashboard Manganês"
 
 app.layout = html.Div([
-    html.H1("Dashboard Interativo - Teores de Manganês por Furo", style={"textAlign": "center"}),
+    html.H1("Dashboard de Manganês", className="text-center my-4"),
+    
+    html.Div([
+        html.Label("Selecione um furo:", className="fw-bold"),
+        dcc.Dropdown(
+            options=[{"label": f, "value": f} for f in sorted(df["Furo"].unique())],
+            id="furo-dropdown",
+            placeholder="Ex: FCC-1-1"
+        )
+    ], className="mb-4"),
 
-    html.Label("Filtrar por Teor Mínimo de Mn (%)"),
-    dcc.Slider(0, 50, step=1, value=0, marks={i: f"{i}%" for i in range(0, 51, 10)}, id="mn-slider"),
-
-    dcc.Dropdown(options=[{"label": furo, "value": furo} for furo in furos_conhecidos],
-                 id="furo-dropdown",
-                 placeholder="Selecione um furo para análise detalhada"),
-
-    html.Div(id="descricao-furo"),
-
-    dcc.Tabs(id="tabs", value="barras", children=[
-        dcc.Tab(label="Gráfico de Barras", value="barras"),
-        dcc.Tab(label="Gráfico de Pizza", value="pizza"),
-        dcc.Tab(label="Gráfico 3D (em breve)", value="3d", disabled=True)
-    ]),
-
-    dcc.Graph(id="grafico-analise")
-])
+    html.Div([
+        dcc.Tabs(id="tabs", value='grafico_barras', children=[
+            dcc.Tab(label="Gráfico de Barras", value='grafico_barras'),
+            dcc.Tab(label="Gráfico 3D", value='grafico_3d'),
+            dcc.Tab(label="Gráfico de Pizza", value='grafico_pizza'),
+        ]),
+        html.Div(id="conteudo-grafico", className="my-4"),
+        html.Div(id="frase-inteligente", className="mt-4")
+    ])
+], className="container")
 
 @app.callback(
-    Output("grafico-analise", "figure"),
-    Output("descricao-furo", "children"),
-    Input("mn-slider", "value"),
+    Output("conteudo-grafico", "children"),
+    Output("frase-inteligente", "children"),
     Input("furo-dropdown", "value"),
     Input("tabs", "value")
 )
-def atualizar_visual(mn_min, furo, aba):
+def atualizar_grafico(furo, aba_selecionada):
     if furo is None:
-        return go.Figure(), html.P("Selecione um furo para análise.")
+        return html.P("Selecione um furo para visualizar os dados."), ""
 
-    dados_furo = df[df["Furo"] == furo]
+    dff = df[df["Furo"] == furo]
 
-    if dados_furo.empty:
-        return go.Figure(), html.P(f"O furo {furo} ainda não possui dados de amostragem registrados no sistema.")
+    if dff.empty:
+        return html.P("O furo selecionado ainda não possui dados de amostragem registrados no sistema."), ""
 
-    dados_filtrados = dados_furo[dados_furo["Mn_%"] >= mn_min]
+    if aba_selecionada == "grafico_barras":
+        profundidades = [f"{int(a)}–{int(b)} m" for a, b in zip(dff["DEPTH_FROM"], dff["DEPTH_TO"])]
+        teores = dff["Mn"]
+        cores = teores.apply(color_mn)
 
-    if aba == "barras":
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=dados_filtrados["Mn_%"],
-            y=dados_filtrados["z"],
-            orientation="h",
-            marker_color=dados_filtrados["Mn_%"].apply(cor_mapa_calor),
-            text=[f"{z}m: {mn}%" for z, mn in zip(dados_filtrados["z"], dados_filtrados["Mn_%"])],
-            hoverinfo="text"
+        fig = go.Figure(go.Bar(
+            y=profundidades,
+            x=teores,
+            orientation='h',
+            marker_color=cores,
+            text=[f"{v:.2f}%" for v in teores],
+            textposition="outside"
         ))
+
         fig.update_layout(
-            title="Teor de Mn por Metro (Profundidade)",
-            xaxis_title="Mn (%)",
-            yaxis_title="Profundidade (m)",
-            yaxis=dict(autorange="reversed"),
-            height=500
+            title=f"Teor de Mn por metro no furo {furo}",
+            xaxis_title="Teor de Mn (%)",
+            yaxis_title="Profundidade (do topo ao fundo)",
+            yaxis=dict(autorange="reversed")
         )
-        
-    elif aba == "pizza":
-        locais = df.groupby("LOCAL")
-        labels, values, textos = [], [], []
-        for nome, grupo in locais:
-            labels.append(nome)
-            valores = grupo["Mn_%"]
-            values.append(valores.max())
-            textos.append(f"Mn Max: {valores.max():.2f}%, Média: {valores.mean():.2f}%, Amostras: {len(valores)}")
+        grafico = dcc.Graph(figure=fig)
 
-        fig = go.Figure(data=[go.Pie(labels=labels, values=values, text=textos, hoverinfo="label+text+percent")])
-        fig.update_layout(title="Distribuição de Mn por Localidade (Maior teor)")
+    elif aba_selecionada == "grafico_3d":
+        fig = go.Figure(data=[go.Scatter3d(
+            x=dff["Furo"],
+            y=dff["z"],
+            z=dff["Mn"],
+            mode='markers',
+            marker=dict(size=5, color=dff["Mn"], colorscale="Jet", colorbar_title="Mn (%)"),
+            text=[f"{v:.2f}%" for v in dff["Mn"]]
+        )])
+        fig.update_layout(scene=dict(
+            xaxis_title="Furo",
+            yaxis_title="Profundidade Média (z)",
+            zaxis_title="Mn (%)"
+        ))
+        grafico = dcc.Graph(figure=fig)
 
-    else:
-        fig = go.Figure()
+    else:  # Pizza
+        agrupado = df.groupby("Localidade").agg({
+            "Mn": ["mean", "max", "count"]
+        })
+        agrupado.columns = ["Mn_medio", "Mn_maximo", "Amostras"]
+        agrupado = agrupado.reset_index()
 
-    maior = dados_furo["Mn_%"].max()
-    menor = dados_furo["Mn_%"].min()
-    media = dados_furo["Mn_%"].mean()
-    amostras = len(dados_furo)
-    loc = dados_furo["LOCAL"].iloc[0] if "LOCAL" in dados_furo.columns else "desconhecida"
-    frase = (
-        f"Análise do furo {furo}: localizado em {loc}, onde coletamos {amostras} amostras por sondagem, "
-        f"armazenadas na caixa de amostra ID:{furo}. A leitura XRF foi feita com 2 disparos por amostra. "
-        f"Maior teor de Mn: {maior:.2f}%. Menor: {menor:.2f}%. Média: {media:.2f}%."
-    )
+        fig = go.Figure(data=[go.Pie(
+            labels=agrupado["Localidade"],
+            values=agrupado["Mn_maximo"],
+            hoverinfo='label+value+text',
+            text=[f"Média: {m:.2f}%\nAmostras: {n}" for m, n in zip(agrupado["Mn_medio"], agrupado["Amostras"])]
+        )])
+        fig.update_layout(title="Distribuição do Maior Teor de Mn por Localidade")
+        grafico = dcc.Graph(figure=fig)
 
-    return fig, dcc.Markdown(frase)
+    mn_max = dff["Mn"].max()
+    mn_min = dff["Mn"].min()
+    mn_media = dff["Mn"].mean()
+    local = dff["Localidade"].iloc[0] if "Localidade" in dff.columns else "N/A"
+
+    frase = (f"Análise do furo **{furo}**, localizado em **{local}**, onde coletamos "
+             f"**{len(dff)} amostras** organizadas metro a metro. "
+             f"A leitura foi feita com aparelho XRF em múltiplos disparos por amostra. "
+             f"Maior teor de Mn registrado: **{mn_max:.2f}%**, menor teor: **{mn_min:.2f}%** "
+             f"e a média do teor é de **{mn_media:.2f}%**.")
+
+    return grafico, dcc.Markdown(frase)
 
 if __name__ == "__main__":
-    app.run_server(debug=False, host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000, debug=True)
