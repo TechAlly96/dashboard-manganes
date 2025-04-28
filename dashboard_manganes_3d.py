@@ -41,6 +41,7 @@ app.layout = dbc.Container([
     dcc.Tabs(id="tabs", value='barra', children=[
         dcc.Tab(label='Gráfico de Barras (Metro a Metro)', value='barra'),
         dcc.Tab(label='Gráfico de Pizza (Resumo por Localidade)', value='pizza'),
+        dcc.Tab(label='Histograma Geral (Distribuição de Teores)', value='histograma')
     ]),
 
     dcc.Graph(id='grafico-mn'),
@@ -54,13 +55,12 @@ app.layout = dbc.Container([
             html.Span("10–15%", style={'backgroundColor': 'green', 'color': 'white', 'padding': '4px'}),
             html.Span("15–20%", style={'backgroundColor': 'yellow', 'padding': '4px'}),
             html.Span("20–30%", style={'backgroundColor': 'orange', 'padding': '4px'}),
-            html.Span(">40%", style={'backgroundColor': '#8B0000', 'color': 'white', 'padding': '4px'})
+            html.Span(">30%", style={'backgroundColor': '#8B0000', 'color': 'white', 'padding': '4px'})
         ], style={"display": "flex", "gap": "10px", "flexWrap": "wrap"})
     ])
 ], fluid=True)
 
 # Mapa de cor
-
 def cor_teor_mn(teor):
     if teor < 5:
         return '#00008B'
@@ -75,7 +75,7 @@ def cor_teor_mn(teor):
     else:
         return '#8B0000'
 
-# Callbacks
+# Callback
 @app.callback(
     Output('grafico-mn', 'figure'),
     Output('descricao', 'children'),
@@ -121,7 +121,7 @@ def atualizar_grafico(furo_selecionado, aba):
             html.P(f"Média geral de manganês: {media:.2f}%")
         ])
 
-    else:  # aba == 'pizza'
+    elif aba == 'pizza':
         dff = df.groupby("LOCAL").agg({"MN": "mean", "FURO": pd.Series.nunique}).reset_index()
         fig = go.Figure(go.Pie(
             labels=dff['LOCAL'],
@@ -140,7 +140,35 @@ def atualizar_grafico(furo_selecionado, aba):
             for _, row in dff.iterrows()
         ])
 
+    else:  # aba == 'histograma'
+        fig = go.Figure(go.Histogram(
+            x=df['MN'],
+            nbinsx=20,
+            marker_color='teal'
+        ))
+
+        fig.update_layout(
+            xaxis_title="Teor de Manganês (%)",
+            yaxis_title="Frequência de Ocorrências",
+            height=500,
+            margin=dict(t=30, b=30, l=30, r=30)
+        )
+
+        media_geral = df['MN'].mean()
+        maior_mn = df['MN'].max()
+        menor_mn = df['MN'].min()
+        total_amostras = len(df)
+
+        descricao = html.Div([
+            html.P(f"Número total de amostras analisadas: {total_amostras}"),
+            html.P(f"Maior teor registrado: {maior_mn:.2f}% de manganês"),
+            html.P(f"Menor teor registrado: {menor_mn:.2f}% de manganês"),
+            html.P(f"Média geral de teores: {media_geral:.2f}% de manganês"),
+            html.P("Este histograma ajuda a entender a distribuição de teores no projeto.")
+        ])
+
     return fig, descricao
 
+# Rodar servidor
 if __name__ == '__main__':
     app.run(debug=False, host="0.0.0.0", port=10000)
