@@ -7,7 +7,7 @@ import os
 
 # Corrigir nome de colunas antes de carregar o dataframe
 def corrigir_colunas(df):
-    colunas_corrigidas = {col: col.strip().replace(" ", "_").upper() for col in df.columns}
+    colunas_corrigidas = {col.strip().replace(" ", "_").upper(): col for col in df.columns}
     df.rename(columns=colunas_corrigidas, inplace=True)
     return df
 
@@ -27,6 +27,21 @@ df['z'] = (df['DEPTH_FROM'] + df['DEPTH_TO']) / 2
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Dashboard Interativo - Análise de Manganês"
 
+# Função de cor para mapa de calor
+def cor_teor_mn(teor):
+    if teor < 5:
+        return '#00008B'  # Azul escuro
+    elif teor < 10:
+        return '#00CED1'  # Azul claro
+    elif teor < 15:
+        return 'green'
+    elif teor < 20:
+        return 'yellow'
+    elif teor < 30:
+        return 'orange'
+    else:
+        return '#8B0000'
+
 # Layout
 app.layout = dbc.Container([
     html.H2("Dashboard Interativo - Análise de Manganês", className="text-center my-3"),
@@ -41,7 +56,7 @@ app.layout = dbc.Container([
     dcc.Tabs(id="tabs", value='barra', children=[
         dcc.Tab(label='Gráfico de Barras (Metro a Metro)', value='barra'),
         dcc.Tab(label='Gráfico de Pizza (Resumo por Localidade)', value='pizza'),
-        dcc.Tab(label='Histograma Geral (Distribuição de Teores)', value='histograma')
+        dcc.Tab(label='Histograma Geral (Distribuição de Teores)', value='histograma'),
     ]),
 
     dcc.Graph(id='grafico-mn'),
@@ -55,27 +70,12 @@ app.layout = dbc.Container([
             html.Span("10–15%", style={'backgroundColor': 'green', 'color': 'white', 'padding': '4px'}),
             html.Span("15–20%", style={'backgroundColor': 'yellow', 'padding': '4px'}),
             html.Span("20–30%", style={'backgroundColor': 'orange', 'padding': '4px'}),
-            html.Span(">30%", style={'backgroundColor': '#8B0000', 'color': 'white', 'padding': '4px'})
+            html.Span(">30%", style={'backgroundColor': '#8B0000', 'color': 'white', 'padding': '4px'}),
         ], style={"display": "flex", "gap": "10px", "flexWrap": "wrap"})
     ])
 ], fluid=True)
 
-# Mapa de cor
-def cor_teor_mn(teor):
-    if teor < 5:
-        return '#00008B'
-    elif teor < 10:
-        return '#00CED1'
-    elif teor < 15:
-        return 'green'
-    elif teor < 20:
-        return 'yellow'
-    elif teor < 30:
-        return 'orange'
-    else:
-        return '#8B0000'
-
-# Callback
+# Callbacks
 @app.callback(
     Output('grafico-mn', 'figure'),
     Output('descricao', 'children'),
@@ -109,16 +109,14 @@ def atualizar_grafico(furo_selecionado, aba):
         local = dff['LOCAL'].iloc[0]
         maior = dff['MN'].max()
         menor = dff['MN'].min()
-        media = dff['MN'].mean()
         total = len(dff)
 
         descricao = html.Div([
             html.P(f"Furo {furo_selecionado} — Localidade: {local}"),
             html.P(f"Número de amostras: {total}"),
             html.P("Leituras feitas por amostra: 2 disparos"),
-            html.P(f"Maior teor de manganês: {maior:.2f}%"),
-            html.P(f"Menor teor de manganês: {menor:.2f}%"),
-            html.P(f"Média geral de manganês: {media:.2f}%")
+            html.P(f"Máximo teor registrado: {maior:.2f}% de manganês"),
+            html.P(f"Mínimo teor registrado: {menor:.2f}% de manganês"),
         ])
 
     elif aba == 'pizza':
@@ -140,12 +138,21 @@ def atualizar_grafico(furo_selecionado, aba):
             for _, row in dff.iterrows()
         ])
 
-    else:  # aba == 'histograma'
+    elif aba == 'histograma':
+        hist_data = df['MN']
+        bins = list(range(0, 52, 2))  # Bins de 2 em 2%
+
+        cores = [cor_teor_mn(x) for x in hist_data]
+
         fig = go.Figure(go.Histogram(
-            x=df['MN'],
-            nbinsx=20,
-            marker_color='teal'
+            x=hist_data,
+            nbinsx=len(bins),
+            marker=dict(color="#008B8B"),
+            autobinx=False,
+            xbins=dict(start=0, end=52, size=2),
         ))
+
+        fig.update_traces(marker_color='#008B8B')
 
         fig.update_layout(
             xaxis_title="Teor de Manganês (%)",
@@ -154,21 +161,18 @@ def atualizar_grafico(furo_selecionado, aba):
             margin=dict(t=30, b=30, l=30, r=30)
         )
 
-        media_geral = df['MN'].mean()
-        maior_mn = df['MN'].max()
-        menor_mn = df['MN'].min()
-        total_amostras = len(df)
+        maximo = hist_data.max()
+        minimo = hist_data.min()
+        total_amostras = len(hist_data)
 
         descricao = html.Div([
             html.P(f"Número total de amostras analisadas: {total_amostras}"),
-            html.P(f"Maior teor registrado: {maior_mn:.2f}% de manganês"),
-            html.P(f"Menor teor registrado: {menor_mn:.2f}% de manganês"),
-            html.P(f"Média geral de teores: {media_geral:.2f}% de manganês"),
-            html.P("Este histograma ajuda a entender a distribuição de teores no projeto.")
-        ])
+            html.P(f"Máximo teor registrado: {maximo:.2f}% de manganês"),
+            html.P(f"Mínimo teor registrado: {minimo:.2f}% de manganês"),
+            html.P("Este histograma ajuda a entender a distribuição de teores no projeto.", style={"marginTop": "10px"})
+        ], style={"color": "deepskyblue", "padding": "10px"})
 
     return fig, descricao
 
-# Rodar servidor
 if __name__ == '__main__':
     app.run(debug=False, host="0.0.0.0", port=10000)
