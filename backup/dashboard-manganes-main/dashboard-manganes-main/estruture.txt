@@ -1,0 +1,11 @@
+dashboard_manganes_3d/
+│
+├── assets/                       # (opcional) arquivos estáticos (CSS, imagens...)
+├── data/
+│   └── ASSAY.xlsx                # Planilha com dados das amostras
+│
+├── dashboard_manganes_3d.py      # Arquivo principal do app
+├── requirements.txt              # Dependências para instalar com pip
+├── render.yaml                   # Configuração para deploy no Render
+├── README.md                     # Instruções e descrição do projeto
+└── instruções.txt                # Informações adicionais para uso

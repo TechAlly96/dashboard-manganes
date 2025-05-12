@@ -1,0 +1,15 @@
+# Ativar ambiente virtual
+cd C:\Users\Asus\BRAZIL MINERALS\dashboard_manganes_3d
+.\venv\Scripts\activate
+
+# Verificar se o arquivo foi modificado
+git status
+
+# Adicionar arquivo atualizado
+git add data/ASSAY.xlsx
+
+# Commitar a alteração
+git commit -m "Atualiza dados da planilha ASSAY.xlsx com nova versão"
+
+# Subir para o GitHub
+git push origin master
