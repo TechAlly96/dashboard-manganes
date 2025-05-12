@@ -3,8 +3,8 @@ services:
     name: dashboard-manganes
     env: python
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python dashboard_manganes_3d.py"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python dashboard_manganes_3d.py
     envVars:
-      - key: PORT
-        value: 10000
+      - key: PYTHON_VERSION
+        value: 3.11
