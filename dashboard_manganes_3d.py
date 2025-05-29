@@ -173,7 +173,7 @@ def atualizar_cutoff(corte):
     return saidas
 
 
-
-server = app.server  # para Railway identificar o servidor
-application = app  # para gunicorn encontrar o app
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)
 
